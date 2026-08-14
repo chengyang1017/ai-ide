@@ -646,3 +646,69 @@ button:disabled {
   flex: 0 0 auto;
   max-width: 250px;
 }
+
+/* Alpha 0.8：角色直接朗读当前教学气泡。 */
+.voice-button {
+  border-color: #3e7d8f;
+  background: #17313a;
+  color: #dcf8ff;
+}
+
+.voice-button:hover {
+  background: #1d3d47;
+}
+
+.voice-rate {
+  height: 32px;
+  min-width: 67px;
+  border: 1px solid #343945;
+  border-radius: 7px;
+  background: #20242c;
+  color: #d7dae0;
+  padding: 0 7px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tutor-character.voice-speaking .mouth {
+  height: 6px;
+  border-radius: 50%;
+  animation: tutorMouthTalk 150ms ease-in-out infinite alternate;
+}
+
+.tutor-character.voice-speaking .antenna span {
+  animation: tutorVoicePulse 420ms ease-in-out infinite alternate;
+}
+
+.tutor-character.voice-paused .mouth {
+  height: 2px;
+  animation: none;
+}
+
+#voice-status {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes tutorMouthTalk {
+  from {
+    height: 2px;
+    transform: scaleX(.88);
+  }
+  to {
+    height: 7px;
+    transform: scaleX(1.08);
+  }
+}
+
+@keyframes tutorVoicePulse {
+  from {
+    box-shadow: 0 0 7px #7c5cff;
+    transform: scale(.9);
+  }
+  to {
+    box-shadow: 0 0 15px #78ddff;
+    transform: scale(1.18);
+  }
+}

@@ -1,32 +1,35 @@
-# AI Code Tutor IDE — Alpha 0.7
+# AI Code Tutor IDE — Alpha 0.8
 
 一个独立桌面代码编辑器原型。核心目标不是做“右侧 AI 聊天框”，而是让动画 AI 导师直接生活在代码区域里，并能够沿真实项目调用链跨文件跳着讲。
 
+## Alpha 0.8 新增：角色语音教学
 
-## Alpha 0.7 新增
+1. 角色每次跳到 `TutorMove` 目标后，会直接朗读该步骤的 `speech`。
+2. 使用 Electron Renderer 的系统 `speechSynthesis`，不调用 OpenAI Audio API，因此**语音本身不需要 API Key**。
+3. 优先选择 Windows 本机可用的中文语音；没有中文语音时回退到系统默认声音。
+4. AI / Dart 语义教学路线现在变成：`跳到代码 → 高亮 → 显示气泡 → 朗读完 → 再跳下一段`。
+5. 顶部新增 `🔊 语音开启 / 🔇 语音关闭`。
+6. 新增 `0.8× / 1.0× / 1.2× / 1.4×` 语速控制。
+7. 用户停止教学、切换文件、打开新项目或关闭 IDE 时，会立即取消当前语音，避免旧讲解继续播放。
+8. 角色朗读时嘴巴与天线会进入说话动画状态。
+9. 关闭语音后，导航仍保持原来的定时停留逻辑，不影响非语音使用方式。
+
+## Alpha 0.7
 
 1. `AI 理解函数` 不再要求精准点中函数名：支持选中整个 Dart 函数、只选函数名、或把光标放在函数体内部。
 2. Electron 把 Selection 范围传给 Dart LSP，通过 `textDocument/documentSymbol` 自动找到最近的 Function / Method / Constructor，再从真实符号位置启动 Call Hierarchy。
 3. 修复选中 `Future<void> foo() { ... }` 时误把 `Future` 当成语义根节点的问题。
-4. 左侧项目文件夹默认全部折叠，避免大型项目打开后整棵目录树铺满。
-5. 用户手动展开的目录保持展开；角色 / AI 跨文件导航时只自动展开目标文件的祖先目录并滚动到当前文件。
+4. 左侧项目文件夹默认全部折叠。
+5. 角色 / AI 跨文件导航时只自动展开目标文件的祖先目录并滚动到当前文件。
 
 ## Alpha 0.6
 
-这一版把 Alpha 0.4 的 AI 教学规划与 Alpha 0.5 的 Dart LSP 真实语义调用合并：
-
-1. 新增 `🧠✨ AI 理解函数`
-2. 新增三种教学方向：
-   - `完整功能链`
-   - `谁调用它`
-   - `它调用谁`
-3. Dart Analysis Server 先通过 Call Hierarchy 建立真实调用图
-4. `完整功能链` 默认探索 2 层；单方向最多探索 3 层
-5. Flutter SDK / 第三方包等项目外节点默认过滤，不让老师轻易跑出用户项目
-6. IDE 读取每个真实语义节点附近的代码，再交给 AI 排教学顺序
-7. AI 只能选择 LSP 已经返回的真实节点 ID，不能自己编造文件或行号
-8. AI 最终生成 `TutorMove[]`，角色按顺序切文件、滚动、高亮、跳跃并讲解
-9. Alpha 0.5 的机械 `🧠 Dart 语义调用` 仍然保留，方便和 AI 教学路线直接比较
+1. 新增 `🧠✨ AI 理解函数`。
+2. 支持 `完整功能链 / 谁调用它 / 它调用谁`。
+3. Dart Analysis Server 先建立真实 Call Hierarchy。
+4. IDE 读取真实语义节点附近的代码，再交给 AI 排教学顺序。
+5. AI 只能选择 LSP 已返回的真实节点，不能编造文件和行号。
+6. 最终生成 `TutorMove[]`，角色跨文件跳跃、高亮并讲解。
 
 ## 运行
 
@@ -35,7 +38,7 @@ npm run typecheck
 npm run dev
 ```
 
-Alpha 0.6 没有新增 npm 依赖，所以不需要重新 `npm install`。
+Alpha 0.8 没有新增 npm 依赖，所以不需要重新 `npm install`。
 
 Dart 语义分析依赖本机 Dart SDK：
 
@@ -45,126 +48,90 @@ dart --version
 
 Windows 下 IDE 会自动从 `DART_BIN`、`FLUTTER_ROOT`、`where.exe dart` 与 PATH 中寻找 Flutter SDK 内真正可直接启动的 `dart.exe`。
 
-## 测试方式
+## 语音测试
 
-建议打开 Flutter 项目：
+最简单的测试不需要 API Key：
 
-1. `📂 打开项目`
-2. 打开 `.dart` 文件
-3. 把光标准确放在一个函数或方法名称上
-4. 如果尚未设置，先点 `🔑 API Key`
-5. 选择 `完整功能链 / 谁调用它 / 它调用谁`
-6. 点击 `🧠✨ AI 理解函数`
+1. 打开项目。
+2. 把光标放到任意代码位置。
+3. 确认顶部显示 `🔊 语音开启`。
+4. 点击 `🤖 老师跳到光标`。
+5. 角色跳到当前位置后，应该直接朗读气泡内容。
+6. 修改语速，再点击一次观察速度变化。
+7. 点击 `🔇 语音关闭` 后再次跳转，应只显示气泡、不播放声音。
 
-例如光标位于：
+完整 AI 调用链语音测试：
 
-```dart
-Future<void> _loadSavedAccounts() async {
-```
-
-理想链路：
+1. 打开 Flutter / Dart 项目。
+2. 选中整个函数、函数名，或把光标放在函数体内。
+3. 设置 OpenAI API Key。
+4. 点击 `🧠✨ AI 理解函数`。
+5. 每个真实语义节点都会执行：
 
 ```text
-Dart Analysis Server
+跨文件 / 跳到代码
         ↓
-真实 incoming / outgoing Call Hierarchy
+高亮真实语义节点
         ↓
-项目内 2～3 层调用图
+角色显示 AI 教学气泡
         ↓
-读取每个节点附近真实代码
+系统语音朗读
         ↓
-AI 判断哪些节点最值得教学
+朗读结束
+        ↓
+再进入下一节点
+```
+
+## 语音与 API Key 的关系
+
+```text
+🤖 老师跳到光标        → 不需要 API Key
+🧭 项目文本导航        → 不需要 API Key
+🧠 Dart 语义调用       → 不需要 API Key
+🔊 把已有台词读出来    → 不需要 API Key
+
+✨ AI 老师理解项目      → 需要 API Key
+🧠✨ AI 理解函数       → 需要 API Key
+```
+
+AI 负责“讲什么”，系统 TTS 负责“把已经生成的文字说出来”。
+
+## 当前调用链
+
+```text
+Dart Analysis Server / 项目搜索
+        ↓
+AI（需要时）规划教学路线
         ↓
 TutorMove[]
         ↓
-角色：入口 → 当前函数 → 关键下游调用
-```
-
-## Alpha 0.3 ～ 0.6 的区别
-
-```text
-Alpha 0.3
-全文文本搜索
-“哪里出现了这个名字？”
-
-Alpha 0.4
-全文搜索候选 + AI
-“这些同名位置里，哪些值得教？”
-
-Alpha 0.5
-Dart Analysis Server / LSP
-“这个函数真正被谁调用？它真正调用谁？”
-
-Alpha 0.6
-LSP 真实调用图 + AI
-“沿真实调用关系，哪条路线最适合把这个功能讲明白？”
-```
-
-## Alpha 0.6 调用链
-
-```text
-Monaco 光标
-    ↓
-EditorController.getSemanticFocus()
-    ↓
-Electron IPC
-    ↓
-DartLspClient.findCallGraph()
-    ↓
-dart language-server --protocol=lsp
-    ↓
-递归 incomingCalls / outgoingCalls
-    ↓
-只保留当前项目内部节点
-    ↓
-读取节点附近代码
-    ↓
-OpenAI 规划教学顺序
-    ↓
-受限 candidateId Structured Output
-    ↓
-TutorMove[]
-    ↓
-CharacterController
-    ↓
-跨文件跳跃 + 高亮 + 讲解
+CharacterController.moveTo()
+        ↓
+切文件 + 滚动 + 高亮 + 跳跃
+        ↓
+VoiceController.speak(move.speech)
+        ↓
+Windows 系统语音
+        ↓
+说完后继续下一个 TutorMove
 ```
 
 ## 当前限制
 
-- 第一种完整语义语言仍然只有 Dart / Flutter
-- Call Hierarchy 默认只探索有限深度，避免角色钻进巨大调用图
-- 项目外 SDK / package 默认不展开
-- AI Key 当前只保存在 Electron 进程内存，关闭 IDE 后清除
-- 尚未做真正的调用图可视化
-- 尚未把数据流、类型关系、override / implementation 合并成统一项目知识图
-
-## 安全边界
-
-Renderer 继续保持：
-
-```text
-nodeIntegration: false
-contextIsolation: true
-sandbox: true
-```
-
-项目文件读取、Dart LSP 子进程和 OpenAI 请求都由 Electron Main 负责，Renderer 只通过 preload 的有限 IPC 使用这些能力。
+- 完整语义语言目前仍以 Dart / Flutter 为主。
+- 当前语音使用系统 TTS，声音自然度取决于操作系统安装的语音。
+- 尚未接 OpenAI TTS / ElevenLabs 等高质量云端语音。
+- 尚未做麦克风语音提问和“等等 / 继续 / 上一个”等语音控制。
+- AI Key 当前只保存在 Electron 进程内存，关闭 IDE 后清除。
 
 ## 下一阶段
 
-Alpha 0.7 可以开始把“调用链”升级成更完整的项目语义图：
+下一步可以继续做两条中的任意一条：
 
 ```text
-Call Hierarchy
-+
-Definition / References
-+
-Type / Implementation
-+
-数据流候选
-        ↓
-统一 Project Semantic Graph
-        ↓
-AI 导师真正带用户理解一个完整功能
+A. 语音输入
+“等等” / “继续” / 直接问代码问题
+
+B. 更完整项目语义图
+Call Hierarchy + Definition + References + Implementation + Type
 ```

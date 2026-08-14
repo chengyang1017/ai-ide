@@ -5,6 +5,7 @@ import { EditorController } from './editor/editor_controller';
 import { buildRelatedCodeMoves } from './project/project_navigator';
 import { buildSemanticTutorRoute } from './project/semantic_navigator';
 import type { SemanticTutorMode } from './core/semantic_ai_plan';
+import { VoiceController } from './voice/voice_controller';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -18,7 +19,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.7 · 函数智能识别 + 折叠文件树</small>
+          <small>Alpha 0.8 · 角色语音讲解</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -33,6 +34,13 @@ app.innerHTML = `
           <option value="outgoing">它调用谁</option>
         </select>
         <button id="semantic-ai-tour" class="semantic-ai-button" disabled>🧠✨ AI 理解函数</button>
+        <button id="voice-toggle" class="voice-button">🔊 语音开启</button>
+        <select id="voice-rate" class="voice-rate" title="语音速度">
+          <option value="0.8">0.8×</option>
+          <option value="1" selected>1.0×</option>
+          <option value="1.2">1.2×</option>
+          <option value="1.4">1.4×</option>
+        </select>
         <button id="set-api-key">🔑 API Key</button>
         <button id="ai-tour" class="ai-button" disabled>✨ AI 老师理解项目</button>
       </div>
@@ -45,8 +53,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.7</strong>
-          <p>可以选中整个 Dart 函数、只选函数名，或把光标放在函数体内部；IDE 会自动定位真正的 callable。文件夹默认折叠，角色跨文件导航时只展开当前目标路径。</p>
+          <strong>Alpha 0.8</strong>
+          <p>角色跳到代码后会直接用系统语音朗读气泡内容；说完这一段才继续跳下一段。语音不需要 OpenAI API Key，可随时关闭并调整语速。</p>
         </div>
       </aside>
 
@@ -81,6 +89,7 @@ app.innerHTML = `
     <footer class="statusbar">
       <span>Electron + Monaco</span>
       <span id="project-root">尚未打开真实项目</span>
+      <span id="voice-status">语音：等待讲解</span>
       <span id="position-status">Ln 1, Col 1</span>
     </footer>
   </div>
@@ -131,8 +140,11 @@ const findRelatedButton = requireButton('find-related');
 const semanticRelatedButton = requireButton('semantic-related');
 const semanticAiModeSelect = requireSelect('semantic-ai-mode');
 const semanticAiTourButton = requireButton('semantic-ai-tour');
+const voiceToggleButton = requireButton('voice-toggle');
+const voiceRateSelect = requireSelect('voice-rate');
 const setApiKeyButton = requireButton('set-api-key');
 const aiTourButton = requireButton('ai-tour');
+const voiceStatus = requireElement('voice-status');
 const positionStatus = requireElement('position-status');
 const apiKeyModal = requireElement('api-key-modal');
 const apiKeyInput = requireInput('api-key-input');
@@ -142,6 +154,15 @@ const apiKeyCancelButton = requireButton('api-key-cancel');
 const apiKeySaveButton = requireButton('api-key-save');
 
 const editorController = new EditorController(editorElement, demoFiles);
+const voiceController = new VoiceController({
+  character: characterElement,
+  onStateChange: (_state, message) => {
+    voiceStatus.textContent = `语音：${message}`;
+  },
+});
+let voiceEnabledPreference = true;
+voiceController.setEnabled(true);
+
 const characterController = new CharacterController(
   editorController,
   characterElement,
@@ -153,6 +174,7 @@ const characterController = new CharacterController(
     }
     await openRealProjectFile(path, false, true);
   },
+  voiceController,
 );
 
 let projectFiles: string[] = demoFiles.map((file) => file.path);
@@ -305,7 +327,7 @@ findRelatedButton.addEventListener('click', async () => {
       await characterController.moveTo(move);
       updateActiveFile();
       updateFileTreeSelection(true);
-      await delay(move.waitMs ?? 1500);
+      await delay(characterController.voiceEnabled ? 320 : (move.waitMs ?? 1500));
     }
 
     if (sequence === relatedTourSequence) {
@@ -375,7 +397,7 @@ semanticRelatedButton.addEventListener('click', async () => {
       await characterController.moveTo(move);
       updateActiveFile();
       updateFileTreeSelection(true);
-      await delay(move.waitMs ?? 1700);
+      await delay(characterController.voiceEnabled ? 320 : (move.waitMs ?? 1700));
     }
 
     if (sequence === semanticTourSequence) {
@@ -451,7 +473,7 @@ semanticAiTourButton.addEventListener('click', async () => {
       await characterController.moveTo(move);
       updateActiveFile();
       updateFileTreeSelection(true);
-      await delay(move.waitMs ?? 2100);
+      await delay(characterController.voiceEnabled ? 360 : (move.waitMs ?? 2100));
     }
 
     if (sequence === semanticAiTourSequence) {
@@ -468,6 +490,19 @@ semanticAiTourButton.addEventListener('click', async () => {
       semanticAiModeSelect.disabled = false;
     }
   }
+});
+
+voiceToggleButton.addEventListener('click', () => {
+  voiceEnabledPreference = !voiceEnabledPreference;
+  voiceController.setEnabled(voiceEnabledPreference);
+  voiceToggleButton.textContent = voiceEnabledPreference
+    ? '🔊 语音开启'
+    : '🔇 语音关闭';
+});
+
+voiceRateSelect.addEventListener('change', () => {
+  voiceController.setRate(Number(voiceRateSelect.value));
+  voiceStatus.textContent = `语音：${voiceRateSelect.value}×`;
 });
 
 setApiKeyButton.addEventListener('click', () => {
@@ -555,7 +590,7 @@ aiTourButton.addEventListener('click', async () => {
       await characterController.moveTo(move);
       updateActiveFile();
       updateFileTreeSelection(true);
-      await delay(move.waitMs ?? 1900);
+      await delay(characterController.voiceEnabled ? 360 : (move.waitMs ?? 1900));
     }
 
     if (sequence === aiTourSequence) {
@@ -574,6 +609,7 @@ aiTourButton.addEventListener('click', async () => {
 });
 
 function stopRelatedTour(message: string): void {
+  characterController.stopSpeech();
   relatedTourSequence += 1;
   relatedTourRunning = false;
   findRelatedButton.textContent = '🧭 老师找相关代码';
@@ -581,6 +617,7 @@ function stopRelatedTour(message: string): void {
 }
 
 function stopSemanticTour(message: string): void {
+  characterController.stopSpeech();
   semanticTourSequence += 1;
   semanticTourRunning = false;
   semanticRelatedButton.textContent = '🧠 Dart 语义调用';
@@ -588,6 +625,7 @@ function stopSemanticTour(message: string): void {
 }
 
 function stopSemanticAiTour(message: string): void {
+  characterController.stopSpeech();
   semanticAiTourSequence += 1;
   semanticAiTourRunning = false;
   semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
@@ -596,6 +634,7 @@ function stopSemanticAiTour(message: string): void {
 }
 
 function stopAiTour(message: string): void {
+  characterController.stopSpeech();
   aiTourSequence += 1;
   aiTourRunning = false;
   aiTourButton.textContent = '✨ AI 老师理解项目';
@@ -1010,5 +1049,6 @@ function delay(ms: number): Promise<void> {
 }
 
 window.addEventListener('beforeunload', () => {
+  voiceController.stop();
   editorController.dispose();
 });

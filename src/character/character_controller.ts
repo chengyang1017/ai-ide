@@ -1,5 +1,6 @@
 import type { TutorMove } from '../core/tutor_move';
 import type { EditorController } from '../editor/editor_controller';
+import type { VoiceController } from '../voice/voice_controller';
 
 export class CharacterController {
   private currentMove: TutorMove | null = null;
@@ -13,6 +14,7 @@ export class CharacterController {
     bubble: HTMLElement,
     status: HTMLElement,
     private readonly loadFile?: (path: string) => Promise<void>,
+    private readonly voiceController?: VoiceController,
   ) {
     this.character = character;
     this.bubble = bubble;
@@ -62,9 +64,22 @@ export class CharacterController {
         ? '正在思考'
         : '跳到目标';
     this.setStatus(`${actionLabel} · ${move.filePath}:${move.line}`);
+
+    if (this.voiceController?.isEnabled) {
+      await this.voiceController.speak(move.speech);
+    }
+  }
+
+  stopSpeech(): void {
+    this.voiceController?.stop();
+  }
+
+  get voiceEnabled(): boolean {
+    return this.voiceController?.isEnabled ?? false;
   }
 
   clear(message = '等待操作'): void {
+    this.stopSpeech();
     this.currentMove = null;
     this.editorController.clearHighlight();
     this.hideBubble();
