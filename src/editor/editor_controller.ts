@@ -1,5 +1,6 @@
 import type { DemoFile } from '../demo/demo_project';
 import type { TutorFocus } from '../core/ai_tutor_plan';
+import type { SemanticFocus } from '../core/semantic_navigation';
 import { monaco } from './monaco_setup';
 
 export interface EditorFile {
@@ -151,6 +152,27 @@ export class EditorController {
       query: word.word,
       line: position.lineNumber,
       column: position.column,
+    };
+  }
+
+  getSemanticFocus(): SemanticFocus | null {
+    const model = this.editor.getModel();
+    const position = this.editor.getPosition();
+    if (!model || !position || !this.currentPath.toLowerCase().endsWith('.dart')) {
+      return null;
+    }
+
+    const word = model.getWordAtPosition(position);
+    if (!word?.word) {
+      return null;
+    }
+
+    return {
+      filePath: this.currentPath,
+      line: position.lineNumber,
+      column: position.column,
+      query: word.word,
+      documentText: model.getValue(),
     };
   }
 

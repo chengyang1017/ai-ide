@@ -3,6 +3,7 @@ import { CharacterController } from './character/character_controller';
 import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
 import { buildRelatedCodeMoves } from './project/project_navigator';
+import { buildSemanticTutorRoute } from './project/semantic_navigator';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -16,7 +17,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.4 · AI 项目教学路线</small>
+          <small>Alpha 0.5 · Dart LSP 语义调用导航</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -24,6 +25,7 @@ app.innerHTML = `
         <button id="open-project" class="primary-button">📂 打开项目</button>
         <button id="jump-to-cursor">🤖 老师跳到光标</button>
         <button id="find-related" disabled>🧭 老师找相关代码</button>
+        <button id="semantic-related" disabled>🧠 Dart 语义调用</button>
         <button id="set-api-key">🔑 API Key</button>
         <button id="ai-tour" class="ai-button" disabled>✨ AI 老师理解项目</button>
       </div>
@@ -36,8 +38,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.4</strong>
-          <p>选中代码或把光标放在标识符上，点击“AI 老师理解项目”。IDE 会先检索真实项目候选，再让 AI 挑出真正值得走的教学路线。</p>
+          <strong>Alpha 0.5</strong>
+          <p>Dart 文件现在可直接启动 Dart Analysis Server。把光标放在方法 / 函数 / 类名上，老师会按真实定义、调用者、被调用目标或语义引用跨文件跳转。</p>
         </div>
       </aside>
 
@@ -119,6 +121,7 @@ const workspaceBadge = requireElement('workspace-badge');
 const openProjectButton = requireButton('open-project');
 const jumpToCursorButton = requireButton('jump-to-cursor');
 const findRelatedButton = requireButton('find-related');
+const semanticRelatedButton = requireButton('semantic-related');
 const setApiKeyButton = requireButton('set-api-key');
 const aiTourButton = requireButton('ai-tour');
 const positionStatus = requireElement('position-status');
@@ -148,6 +151,8 @@ let isRealProject = false;
 let projectLoadSequence = 0;
 let relatedTourSequence = 0;
 let relatedTourRunning = false;
+let semanticTourSequence = 0;
+let semanticTourRunning = false;
 let aiTourSequence = 0;
 let aiTourRunning = false;
 
@@ -160,6 +165,7 @@ editorController.editor.onDidChangeCursorPosition((event) => {
 
 openProjectButton.addEventListener('click', async () => {
   stopRelatedTour('准备打开项目');
+  stopSemanticTour('准备打开项目');
   stopAiTour('准备打开项目');
   const sequence = ++projectLoadSequence;
   openProjectButton.disabled = true;
@@ -178,6 +184,7 @@ openProjectButton.addEventListener('click', async () => {
     projectRoot.textContent = result.rootPath;
     workspaceBadge.textContent = '真实项目';
     findRelatedButton.disabled = false;
+    semanticRelatedButton.disabled = false;
     aiTourButton.disabled = false;
     renderFileTree(projectFiles);
     characterController.clear('项目已打开');
@@ -200,6 +207,7 @@ openProjectButton.addEventListener('click', async () => {
 
 jumpToCursorButton.addEventListener('click', async () => {
   stopRelatedTour('已切换到手动定位');
+  stopSemanticTour('已切换到手动定位');
   stopAiTour('已切换到手动定位');
   const position = editorController.editor.getPosition();
   if (!position) {
@@ -225,6 +233,7 @@ findRelatedButton.addEventListener('click', async () => {
     return;
   }
 
+  stopSemanticTour('已切换到项目文本导航');
   stopAiTour('已切换到项目文本导航');
 
   if (!isRealProject) {
@@ -298,6 +307,75 @@ findRelatedButton.addEventListener('click', async () => {
   }
 });
 
+semanticRelatedButton.addEventListener('click', async () => {
+  if (semanticTourRunning) {
+    stopSemanticTour('已停止 Dart 语义导航');
+    return;
+  }
+
+  if (!isRealProject) {
+    tutorStatus.textContent = '请先打开真实项目';
+    return;
+  }
+
+  const focus = editorController.getSemanticFocus();
+  if (!focus) {
+    tutorStatus.textContent = 'Alpha 0.5 先支持 Dart：请打开 .dart 文件，并把光标放在一个真实符号名称上';
+    return;
+  }
+
+  stopRelatedTour('已切换到 Dart 语义导航');
+  stopAiTour('已切换到 Dart 语义导航');
+
+  const sequence = ++semanticTourSequence;
+  semanticTourRunning = true;
+  semanticRelatedButton.textContent = '■ 停止语义导航';
+  tutorStatus.textContent = `正在启动 Dart Analysis Server，分析 “${focus.query}”…`;
+
+  try {
+    const result = await window.tutorIde.findDartSemanticTargets(focus);
+    if (sequence !== semanticTourSequence) {
+      return;
+    }
+
+    const route = buildSemanticTutorRoute(result);
+    if (route.moves.length === 0) {
+      tutorStatus.textContent = `Dart Analyzer 没有找到 “${focus.query}” 的定义、调用或引用`;
+      return;
+    }
+
+    for (let index = 0; index < route.moves.length; index += 1) {
+      if (sequence !== semanticTourSequence) {
+        return;
+      }
+
+      const move = route.moves[index];
+      if (!move) {
+        continue;
+      }
+
+      tutorStatus.textContent = `Dart 语义导航 ${index + 1} / ${route.moves.length} · ${move.filePath}:${move.line}`;
+      await characterController.moveTo(move);
+      updateActiveFile();
+      updateFileTreeSelection();
+      await delay(move.waitMs ?? 1700);
+    }
+
+    if (sequence === semanticTourSequence) {
+      tutorStatus.textContent = `✓ ${route.summary} · ${result.provider}`;
+    }
+  } catch (error) {
+    if (sequence === semanticTourSequence) {
+      tutorStatus.textContent = errorMessage(error);
+    }
+  } finally {
+    if (sequence === semanticTourSequence) {
+      semanticTourRunning = false;
+      semanticRelatedButton.textContent = '🧠 Dart 语义调用';
+    }
+  }
+});
+
 setApiKeyButton.addEventListener('click', () => {
   openApiKeyDialog();
 });
@@ -349,6 +427,7 @@ aiTourButton.addEventListener('click', async () => {
   }
 
   stopRelatedTour('已切换到 AI 教学路线');
+  stopSemanticTour('已切换到 AI 教学路线');
   const sequence = ++aiTourSequence;
   aiTourRunning = true;
   aiTourButton.textContent = '■ 停止 AI 老师';
@@ -403,6 +482,13 @@ function stopRelatedTour(message: string): void {
   relatedTourSequence += 1;
   relatedTourRunning = false;
   findRelatedButton.textContent = '🧭 老师找相关代码';
+  tutorStatus.textContent = message;
+}
+
+function stopSemanticTour(message: string): void {
+  semanticTourSequence += 1;
+  semanticTourRunning = false;
+  semanticRelatedButton.textContent = '🧠 Dart 语义调用';
   tutorStatus.textContent = message;
 }
 
@@ -496,6 +582,7 @@ function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: numbe
     button.innerHTML = `<span class="file-icon">${fileLabel(node.path)}</span><span>${escapeText(node.name)}</span>`;
     button.addEventListener('click', async () => {
       stopRelatedTour('已手动切换文件');
+      stopSemanticTour('已手动切换文件');
       stopAiTour('已手动切换文件');
       characterController.clear('已切换文件');
 

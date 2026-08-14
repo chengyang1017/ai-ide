@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron/main');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { DartLspClient } = require('./dart_lsp.cjs');
 
 const IGNORED_DIRECTORIES = new Set([
   '.git',
@@ -29,6 +30,7 @@ const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 let currentProjectRoot = null;
 let currentProjectFiles = [];
 let runtimeOpenAiKey = process.env.OPENAI_API_KEY?.trim() || '';
+let dartLspClient = null;
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || 'gpt-5.2';
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -70,6 +72,8 @@ ipcMain.handle('project:open', async () => {
 
   const rootPath = path.resolve(result.filePaths[0]);
   const files = await collectProjectFiles(rootPath);
+  dartLspClient?.dispose();
+  dartLspClient = null;
   currentProjectRoot = rootPath;
   currentProjectFiles = files;
 
@@ -121,6 +125,54 @@ ipcMain.handle('project:search', async (_event, rawQuery) => {
   return searchProjectInternal(query, 40);
 });
 
+ipcMain.handle('semantic:dart-targets', async (_event, rawFocus) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const focus = validateSemanticFocus(rawFocus);
+  if (!focus.filePath.toLowerCase().endsWith('.dart')) {
+    throw new Error('Alpha 0.5 的第一种语义引擎先接 Dart。请在 .dart 文件中使用这个功能。');
+  }
+
+  if (!dartLspClient) {
+    dartLspClient = new DartLspClient(currentProjectRoot);
+  }
+
+  const absolutePath = resolveInsideProject(currentProjectRoot, focus.filePath);
+  const semantic = await dartLspClient.findSemanticTargets({
+    absolutePath,
+    content: focus.documentText,
+    line: focus.line,
+    column: focus.column,
+  });
+
+  const locations = [];
+  for (const target of semantic.targets.slice(0, 24)) {
+    const relativePath = toProjectRelativePath(target.absolutePath);
+    if (!relativePath || !currentProjectFiles.includes(relativePath)) {
+      continue;
+    }
+
+    const snippet = await readSnippet(relativePath, target.line, 2);
+    locations.push({
+      path: relativePath,
+      line: target.line,
+      column: target.column,
+      kind: target.kind,
+      label: target.label || '',
+      preview: snippet.focusLine,
+    });
+  }
+
+  return {
+    provider: 'Dart Analysis Server · LSP',
+    mode: semantic.mode,
+    symbolName: semantic.symbolName || focus.query,
+    locations: dedupeSemanticLocations(locations),
+  };
+});
+
 ipcMain.handle('ai:has-key', () => runtimeOpenAiKey.length > 0);
 
 ipcMain.handle('ai:set-key', (_event, rawApiKey) => {
@@ -167,6 +219,58 @@ ipcMain.handle('ai:plan-tour', async (_event, rawFocus) => {
     }),
   };
 });
+
+function validateSemanticFocus(value) {
+  if (!value || typeof value !== 'object') {
+    throw new Error('当前语义导航上下文无效。');
+  }
+
+  const filePath = typeof value.filePath === 'string'
+    ? normalizeRelativePath(value.filePath)
+    : '';
+  const query = typeof value.query === 'string' ? value.query.trim().slice(0, 120) : '';
+  const documentText = typeof value.documentText === 'string'
+    ? value.documentText.slice(0, MAX_TEXT_FILE_BYTES)
+    : '';
+  const line = Number.isInteger(value.line) ? Math.max(1, value.line) : 1;
+  const column = Number.isInteger(value.column) ? Math.max(1, value.column) : 1;
+
+  if (!currentProjectFiles.includes(filePath)) {
+    throw new Error('当前文件不属于已打开项目。');
+  }
+  if (!query) {
+    throw new Error('请把光标放在一个 Dart 类、方法、函数或变量名称上。');
+  }
+  if (!documentText) {
+    throw new Error('当前文件内容为空。');
+  }
+
+  return { filePath, query, documentText, line, column };
+}
+
+function toProjectRelativePath(absolutePath) {
+  if (!currentProjectRoot || typeof absolutePath !== 'string') {
+    return null;
+  }
+
+  const relative = path.relative(currentProjectRoot, absolutePath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return normalizeRelativePath(relative);
+}
+
+function dedupeSemanticLocations(locations) {
+  const seen = new Set();
+  return locations.filter((location) => {
+    const key = `${location.path}:${location.line}:${location.column}:${location.kind}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
 
 function validateTutorFocus(value) {
   if (!value || typeof value !== 'object') {
@@ -587,6 +691,11 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on('before-quit', () => {
+  dartLspClient?.dispose();
+  dartLspClient = null;
 });
 
 app.on('window-all-closed', () => {
