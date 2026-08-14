@@ -1,17 +1,26 @@
-# AI Code Tutor IDE — Alpha 0.11
+# AI Code Tutor IDE — Alpha 0.12
 
 一个独立桌面代码编辑器原型。核心目标不是做“右侧 AI 聊天框”，而是让动画 AI 导师直接生活在代码区域里，并能够沿真实项目调用链跨文件跳着讲。
 
 
-## Alpha 0.11 新增：真实保存 + Ctrl+Click + Tutor Rail
+## Alpha 0.12 新增：工作台整理 + 近身 Tutor + Ctrl+Click 提示
 
-1. Monaco 中的修改现在可以通过 `Ctrl+S` 真正写回当前项目里的原文件。
+1. 顶部操作区拆成更像桌面 IDE 的两层：上层保留品牌、状态、语音与 Key；下层按 `PROJECT / NAVIGATE / AI TUTOR` 分组。
+2. 语音语言、具体声音、语速收进“语音设置”菜单，避免所有控件挤成一长排。
+3. Alpha 0.11 的真实编辑与 `Ctrl+S` 写回原文件继续保留。
+4. Tutor 不再住在独立 300px Rail；角色重新进入 Monaco 代码区域，并跟随正在讲解的目标行移动。
+5. 角色会检查目标行上下两行最远的代码位置，优先站在代码末尾后的空白处；空间不够时自动退到 gutter，因此靠近代码但不压住代码字符。
+6. 角色气泡改成编辑器顶部的紧凑字幕条，并通过 Monaco 顶部 padding 留出空间，不盖住第一行代码。
+7. Dart 的 `Ctrl+Click` 继续使用 Dart Analysis Server 做真实 Definition 跳转。
+8. 按住 `Ctrl` 悬停 Dart 符号时，符号会变成蓝色下划线并显示跳转提示，再点击执行语义跳转，更接近 VS Code 的交互反馈。
+
+## Alpha 0.11：真实保存 + Ctrl+Click
+
+1. Monaco 中的修改可以通过 `Ctrl+S` 真正写回当前项目里的原文件。
 2. 当前文件修改后显示 `● 未保存 · Ctrl+S`，保存成功后恢复 `✓ 已保存`。
-3. 切换到别的文件再回来时，会保留尚未保存的 Monaco 内存版本，不会被磁盘旧内容覆盖。
-4. Dart 文件支持 `Ctrl+Click`：点击调用、类、字段或变量符号时，使用 Dart Analysis Server 的语义 Definition 跳到真实定义位置。
-5. Ctrl+Click 可以跨文件，跳转后自动展开文件树目标路径并把光标定位到目标行。
-6. AI 角色从 Monaco 代码表面移到右侧独立 **Tutor Rail**；仍然跟随目标代码行上下移动，但身体和气泡不再盖住代码字符。
-7. Tutor Rail 与代码区域并排布局，代码本身获得真实可用宽度，不依赖透明覆盖层。
+3. 切换文件会保留尚未保存的 Monaco 内存版本。
+4. Dart 文件支持 `Ctrl+Click`，通过 Dart Analysis Server 的 Definition 跨文件跳到真实定义位置。
+5. Alpha 0.11 首次把 Tutor 移入独立 Rail；Alpha 0.12 再把它改成代码区内的动态避让。
 
 ## Alpha 0.10 新增：Windows 原生语音 + 启动恢复
 
@@ -59,7 +68,7 @@ npm run typecheck
 npm run dev
 ```
 
-Alpha 0.11 没有新增 npm 包，所以从 Alpha 0.10 升级不需要重新 `npm install`。
+Alpha 0.12 没有新增 npm 包，所以从 Alpha 0.11 升级不需要重新 `npm install`。
 
 Dart 语义分析依赖本机 Dart SDK：
 
@@ -67,16 +76,14 @@ Dart 语义分析依赖本机 Dart SDK：
 dart --version
 ```
 
-## Alpha 0.11 重点测试
+## Alpha 0.12 重点测试
 
-先验证编辑与保存：
-
-1. 打开真实项目中的一个 `.dart` 文件。
-2. 修改一行代码，确认标签显示 `● 未保存 · Ctrl+S`。
-3. 按 `Ctrl+S`，确认状态恢复 `✓ 已保存`。
-4. 用 VS Code / 记事本重新打开同一个原文件，确认修改真的已经写进磁盘。
-5. 在 Dart 方法调用、类名、字段或变量上按住 `Ctrl` 点击，确认跳到真实 Definition；如果定义在别的文件，会自动跨文件打开。
-6. 让角色跳到几个不同代码行，确认角色只在右侧 Tutor Rail 上下移动，始终不遮挡 Monaco 代码。
+1. 打开真实 Dart 项目，确认顶部按钮不再是一整排混在一起，而是 Project / Navigate / AI Tutor 三组。
+2. 点“语音设置”，确认语言、声音、语速在弹出菜单内仍然可以正常选择。
+3. 让角色跳到几行长短不同的代码：短行时应站在代码末尾附近；目标附近没有足够空白时应退到左侧 gutter，不能压住代码文字。
+4. 按住 `Ctrl`，把鼠标移到 Dart 类、方法、字段或变量上，确认符号出现蓝色下划线与可跳转提示。
+5. 保持 `Ctrl` 点击该符号，确认继续通过 Dart Analyzer 跳到真实 Definition，跨文件时仍会自动打开目标文件。
+6. 修改真实文件后按 `Ctrl+S`，确认 Alpha 0.11 的磁盘保存能力没有回归。
 
 Alpha 0.10 的会话恢复仍然保留：关闭再执行 `npm run dev`，应自动恢复上次项目、文件、语音设置和加密保存的 API Key。
 
@@ -132,7 +139,7 @@ Windows DPAPI
 ```text
 真实项目文件树
 + Monaco Editor
-+ 右侧 Tutor Rail 角色（跟随代码行但不遮挡代码）
++ 代码区近身 Tutor（代码尾部空白 / gutter 自动避让）
 + 项目级文本导航
 + Dart Definition / References / Call Hierarchy
 + AI 组织真实语义教学链

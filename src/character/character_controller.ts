@@ -96,25 +96,24 @@ export class CharacterController {
       return;
     }
 
-    const position = this.editorController.getVisiblePosition(
-      this.currentMove.line,
-      this.currentMove.column,
-    );
+    const placement = this.editorController.getTutorPlacement(this.currentMove.line);
 
-    if (!position) {
+    if (!placement) {
       this.character.classList.add('offscreen');
       return;
     }
 
     this.character.classList.remove('offscreen');
     this.character.classList.toggle('jumping', animate);
+    this.character.dataset.placement = placement.placement;
 
-    // Alpha 0.11：角色不再覆盖在 Monaco 代码字符上。
-    // 它住在编辑器右侧独立 Tutor Rail，只同步目标代码的垂直位置。
-    const railHeight = this.character.parentElement?.clientHeight ?? 0;
-    const maxY = Math.max(8, railHeight - 96);
-    const y = Math.min(Math.max(8, position.top - 28), maxY);
-    this.character.style.transform = `translate3d(8px, ${y}px, 0)`;
+    // Alpha 0.12：角色重新进入代码区，但优先站在目标行附近的空白处。
+    // 会检查目标行上下两行最远的代码位置；空间不足时退到 gutter，
+    // 因此角色靠近正在讲解的代码，又不会压在代码字符上。
+    const surfaceHeight = this.character.parentElement?.clientHeight ?? 0;
+    const maxY = Math.max(8, surfaceHeight - 76);
+    const y = Math.min(Math.max(48, placement.top - 20), maxY);
+    this.character.style.transform = `translate3d(${placement.left}px, ${y}px, 0)`;
 
     if (animate) {
       window.setTimeout(() => this.character.classList.remove('jumping'), 520);

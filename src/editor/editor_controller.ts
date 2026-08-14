@@ -3,6 +3,17 @@ import type { TutorFocus } from '../core/ai_tutor_plan';
 import type { SemanticFocus } from '../core/semantic_navigation';
 import { monaco } from './monaco_setup';
 
+
+interface RuntimeTextModel extends monaco.editor.ITextModel {
+  getWordAtPosition(position: { lineNumber: number; column: number }): {
+    word: string;
+    startColumn: number;
+    endColumn: number;
+  } | null;
+  getLineCount(): number;
+  getLineMaxColumn(lineNumber: number): number;
+}
+
 export interface EditorFile {
   path: string;
   language: string;
@@ -17,6 +28,7 @@ export class EditorController {
   private readonly dirtyListeners = new Set<(path: string, dirty: boolean) => void>();
   private currentPath = '';
   private highlightCollection: monaco.editor.IEditorDecorationsCollection;
+  private definitionHintCollection: monaco.editor.IEditorDecorationsCollection;
 
   constructor(container: HTMLElement, files: DemoFile[]) {
     for (const file of files) {
@@ -38,13 +50,14 @@ export class EditorController {
       minimap: { enabled: true },
       smoothScrolling: true,
       scrollBeyondLastLine: false,
-      padding: { top: 18, bottom: 18 },
+      padding: { top: 42, bottom: 18 },
       glyphMargin: true,
       renderLineHighlight: 'all',
       cursorSmoothCaretAnimation: 'on',
     });
 
     this.highlightCollection = this.editor.createDecorationsCollection();
+    this.definitionHintCollection = this.editor.createDecorationsCollection();
   }
 
   get path(): string {
@@ -60,6 +73,7 @@ export class EditorController {
     this.currentPath = path;
     this.editor.setModel(model);
     this.highlightCollection.clear();
+    this.definitionHintCollection.clear();
     this.emitDirtyState();
   }
 
@@ -81,11 +95,13 @@ export class EditorController {
     this.currentPath = file.path;
     this.editor.setModel(model);
     this.highlightCollection.clear();
+    this.definitionHintCollection.clear();
     this.emitDirtyState();
   }
 
   replaceWorkspace(file: EditorFile): void {
     this.highlightCollection.clear();
+    this.definitionHintCollection.clear();
 
     for (const model of this.models.values()) {
       model.dispose();
@@ -152,6 +168,80 @@ export class EditorController {
 
   clearHighlight(): void {
     this.highlightCollection.clear();
+  }
+
+  showDefinitionHint(line: number, column: number): void {
+    const model = this.editor.getModel();
+    if (!model || !this.currentPath.toLowerCase().endsWith('.dart')) {
+      this.definitionHintCollection.clear();
+      return;
+    }
+
+    const runtimeModel = model as RuntimeTextModel;
+    const word = runtimeModel.getWordAtPosition({ lineNumber: line, column });
+    if (!word?.word) {
+      this.definitionHintCollection.clear();
+      return;
+    }
+
+    this.definitionHintCollection.set([
+      {
+        range: new monaco.Range(line, word.startColumn, line, word.endColumn),
+        options: {
+          inlineClassName: 'ctrl-click-link',
+          hoverMessage: { value: `Ctrl+Click 跳转到 **${word.word}** 的定义` },
+        },
+      },
+    ]);
+  }
+
+  clearDefinitionHint(): void {
+    this.definitionHintCollection.clear();
+  }
+
+  getTutorPlacement(line: number): { left: number; top: number; placement: 'code-end' | 'gutter' } | null {
+    const model = this.editor.getModel();
+    if (!model) {
+      return null;
+    }
+
+    const target = this.editor.getScrolledVisiblePosition({
+      lineNumber: line,
+      column: 1,
+    });
+    if (!target) {
+      return null;
+    }
+
+    const runtimeModel = model as RuntimeTextModel;
+    const layout = this.editor.getLayoutInfo();
+    const firstLine = Math.max(1, line - 2);
+    const lastLine = Math.min(runtimeModel.getLineCount(), line + 2);
+    let furthestVisibleCode = layout.contentLeft;
+
+    for (let currentLine = firstLine; currentLine <= lastLine; currentLine += 1) {
+      const endPosition = this.editor.getScrolledVisiblePosition({
+        lineNumber: currentLine,
+        column: runtimeModel.getLineMaxColumn(currentLine),
+      });
+      if (endPosition) {
+        furthestVisibleCode = Math.max(furthestVisibleCode, endPosition.left);
+      }
+    }
+
+    const characterWidth = 58;
+    const gap = 14;
+    const contentRight = layout.contentLeft + layout.contentWidth;
+    const preferredLeft = furthestVisibleCode + gap;
+    const hasSafeWhitespace = preferredLeft + characterWidth <= contentRight - 8;
+
+    return {
+      left: hasSafeWhitespace
+        ? preferredLeft
+        : Math.max(6, layout.contentLeft - characterWidth - 8),
+      top: target.top,
+      placement: hasSafeWhitespace ? 'code-end' : 'gutter',
+    };
   }
 
   getVisiblePosition(line: number, column: number): { left: number; top: number; height: number } | null {
@@ -338,6 +428,7 @@ export class EditorController {
 
   dispose(): void {
     this.highlightCollection.clear();
+    this.definitionHintCollection.clear();
     this.editor.dispose();
     this.dirtyListeners.clear();
     for (const model of this.models.values()) {

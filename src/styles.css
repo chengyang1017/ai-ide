@@ -949,3 +949,284 @@ button:disabled {
     font-size: 11px;
   }
 }
+
+/* Alpha 0.12：更像桌面 IDE 的双层命令区。 */
+.ide-shell {
+  grid-template-rows: 40px 44px minmax(0, 1fr) 24px;
+}
+
+.titlebar {
+  gap: 14px;
+  min-width: 0;
+  padding: 0 12px;
+  overflow: visible;
+}
+
+.brand {
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.brand strong {
+  font-size: 12px;
+}
+
+.brand small {
+  max-width: 430px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.titlebar-right .tutor-status {
+  flex: 1 1 auto;
+  max-width: 360px;
+}
+
+.compact-button {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.commandbar {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  padding: 5px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid #292e37;
+  background: #14171d;
+  scrollbar-width: thin;
+}
+
+.commandbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.commandbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #353b46;
+}
+
+.command-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  position: relative;
+  padding-top: 10px;
+}
+
+.command-group-label {
+  position: absolute;
+  top: -1px;
+  left: 2px;
+  color: #626b79;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  user-select: none;
+}
+
+.command-group > button,
+.command-group > select {
+  height: 29px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 11px;
+}
+
+.command-divider {
+  flex: 0 0 1px;
+  width: 1px;
+  margin: 5px 1px;
+  background: #2b3039;
+}
+
+.command-group-ai {
+  padding-right: 4px;
+}
+
+.toolbar-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.toolbar-menu > summary {
+  list-style: none;
+  min-height: 28px;
+  border: 1px solid #343945;
+  border-radius: 7px;
+  background: #20242c;
+  color: #d7dae0;
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toolbar-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.toolbar-menu > summary:hover,
+.toolbar-menu[open] > summary {
+  background: #2a2f39;
+}
+
+.toolbar-menu-panel {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 7px);
+  right: 0;
+  min-width: 300px;
+  padding: 12px;
+  border: 1px solid #343b47;
+  border-radius: 10px;
+  background: #191d24;
+  box-shadow: 0 18px 42px rgb(0 0 0 / 45%);
+}
+
+.voice-settings-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.voice-settings-panel label {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: #8f98a6;
+  font-size: 10px;
+}
+
+.voice-settings-panel .voice-language,
+.voice-settings-panel .voice-select,
+.voice-settings-panel .voice-rate {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+/* Alpha 0.12：Tutor 回到代码区附近；没有独立 300px rail。 */
+.editor-stage {
+  display: block;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #111318;
+}
+
+.editor {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tutor-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tutor-character {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 58px;
+  height: 70px;
+  transition: transform 520ms cubic-bezier(.22,.8,.24,1), opacity 180ms ease;
+  will-change: transform;
+}
+
+.tutor-character::before,
+.tutor-character::after {
+  content: none;
+}
+
+.tutor-character[data-placement="gutter"] {
+  opacity: .9;
+}
+
+.tutor-character[data-placement="gutter"] .robot {
+  transform: scale(.82);
+  transform-origin: 50% 50%;
+}
+
+.tutor-character[data-placement="code-end"] .arm {
+  transform-origin: 0 50%;
+}
+
+.speech-bubble {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 18px;
+  left: auto;
+  bottom: auto;
+  width: min(420px, 44vw);
+  max-height: 30px;
+  overflow: hidden;
+  padding: 6px 10px;
+  border: 1px solid #3e4654;
+  border-radius: 7px;
+  background: rgb(24 28 35 / 94%);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 28%);
+  color: #dfe4ec;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ctrl+Click：按住 Ctrl 后，符号像 VS Code 一样出现链接反馈。 */
+.monaco-editor .ctrl-click-link {
+  color: #4fc1ff !important;
+  text-decoration-line: underline !important;
+  text-decoration-color: #4fc1ff !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 2px;
+  cursor: pointer !important;
+}
+
+@media (max-width: 1300px) {
+  .titlebar-right .tutor-status {
+    display: none;
+  }
+
+  .brand small {
+    max-width: 260px;
+  }
+}
+
+@media (max-width: 900px) {
+  .brand small {
+    display: none;
+  }
+
+  .toolbar-menu-panel {
+    right: -44px;
+  }
+}

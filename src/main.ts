@@ -19,38 +19,73 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.11 · 真实保存 + Ctrl+Click + Tutor Rail</small>
+          <small>Alpha 0.12 · 工作台整理 + 近身 Tutor + Ctrl+Click 提示</small>
         </div>
       </div>
-      <div class="titlebar-actions">
+
+      <div class="titlebar-right">
         <span id="tutor-status" class="tutor-status">等待打开项目</span>
+        <button id="voice-toggle" class="voice-button compact-button">🔊 语音</button>
+
+        <details class="toolbar-menu">
+          <summary title="语音设置">⚙ 语音设置</summary>
+          <div class="toolbar-menu-panel voice-settings-panel">
+            <label>
+              <span>语言</span>
+              <select id="voice-language" class="voice-language" title="语音语言">
+                <option value="zh-CN">中文（简体）</option>
+              </select>
+            </label>
+            <label>
+              <span>声音</span>
+              <select id="voice-select" class="voice-select" title="具体系统声音">
+                <option value="">自动选择声音</option>
+              </select>
+            </label>
+            <label>
+              <span>语速</span>
+              <select id="voice-rate" class="voice-rate" title="语音速度">
+                <option value="0.8">0.8×</option>
+                <option value="1" selected>1.0×</option>
+                <option value="1.2">1.2×</option>
+                <option value="1.4">1.4×</option>
+              </select>
+            </label>
+          </div>
+        </details>
+
+        <button id="set-api-key" class="compact-button">🔑 Key</button>
+      </div>
+    </header>
+
+    <nav class="commandbar" aria-label="IDE commands">
+      <div class="command-group command-group-project">
+        <span class="command-group-label">PROJECT</span>
         <button id="open-project" class="primary-button">📂 打开项目</button>
-        <button id="jump-to-cursor">🤖 老师跳到光标</button>
-        <button id="find-related" disabled>🧭 老师找相关代码</button>
-        <button id="semantic-related" disabled>🧠 Dart 语义调用</button>
+      </div>
+
+      <div class="command-divider" aria-hidden="true"></div>
+
+      <div class="command-group">
+        <span class="command-group-label">NAVIGATE</span>
+        <button id="jump-to-cursor">🤖 跳到光标</button>
+        <button id="find-related" disabled>🧭 相关代码</button>
+        <button id="semantic-related" disabled>🧠 Dart 调用</button>
+      </div>
+
+      <div class="command-divider" aria-hidden="true"></div>
+
+      <div class="command-group command-group-ai">
+        <span class="command-group-label">AI TUTOR</span>
         <select id="semantic-ai-mode" class="semantic-mode" title="AI 语义教学方向">
           <option value="full">完整功能链</option>
           <option value="incoming">谁调用它</option>
           <option value="outgoing">它调用谁</option>
         </select>
-        <button id="semantic-ai-tour" class="semantic-ai-button" disabled>🧠✨ AI 理解函数</button>
-        <button id="voice-toggle" class="voice-button">🔊 语音开启</button>
-        <select id="voice-language" class="voice-language" title="语音语言">
-          <option value="zh-CN">中文（简体）</option>
-        </select>
-        <select id="voice-select" class="voice-select" title="具体系统声音">
-          <option value="">自动选择声音</option>
-        </select>
-        <select id="voice-rate" class="voice-rate" title="语音速度">
-          <option value="0.8">0.8×</option>
-          <option value="1" selected>1.0×</option>
-          <option value="1.2">1.2×</option>
-          <option value="1.4">1.4×</option>
-        </select>
-        <button id="set-api-key">🔑 API Key</button>
-        <button id="ai-tour" class="ai-button" disabled>✨ AI 老师理解项目</button>
+        <button id="semantic-ai-tour" class="semantic-ai-button" disabled>🧠✨ 理解函数</button>
+        <button id="ai-tour" class="ai-button" disabled>✨ 理解项目</button>
       </div>
-    </header>
+    </nav>
 
     <div class="workspace">
       <aside class="sidebar">
@@ -59,8 +94,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.11</strong>
-          <p>Monaco 修改现在可以用 Ctrl+S 真正写回原文件；Dart 支持 Ctrl+Click 语义跳转；角色移动到独立 Tutor Rail，不再盖住代码字符。</p>
+          <strong>Alpha 0.12</strong>
+          <p>工具栏按项目 / 导航 / AI 教学重新分组；角色回到代码区附近但会避开文字；按住 Ctrl 悬停 Dart 符号时会出现可跳转提示。</p>
         </div>
       </aside>
 
@@ -75,10 +110,9 @@ app.innerHTML = `
         <div id="editor-stage" class="editor-stage">
           <div id="editor" class="editor"></div>
 
-          <aside id="tutor-rail" class="tutor-rail" aria-label="AI Tutor activity rail">
-            <div class="tutor-rail-label">AI TUTOR</div>
-            <div id="tutor-character" class="tutor-character offscreen" data-action="jump">
-              <div class="speech-bubble" id="speech-bubble"></div>
+          <div id="tutor-surface" class="tutor-surface" aria-label="AI Tutor activity layer">
+            <div class="speech-bubble" id="speech-bubble"></div>
+            <div id="tutor-character" class="tutor-character offscreen" data-action="jump" data-placement="code-end">
               <div class="robot-shadow"></div>
               <div class="robot">
                 <div class="antenna"><span></span></div>
@@ -91,7 +125,7 @@ app.innerHTML = `
                 <div class="arm"></div>
               </div>
             </div>
-          </aside>
+          </div>
         </div>
       </main>
     </div>
@@ -185,6 +219,8 @@ interface RuntimeMonacoMouseEvent {
 
 interface RuntimeMonacoEditor {
   onMouseDown(listener: (event: RuntimeMonacoMouseEvent) => void): { dispose(): void };
+  onMouseMove(listener: (event: RuntimeMonacoMouseEvent) => void): { dispose(): void };
+  onMouseLeave(listener: () => void): { dispose(): void };
   setPosition(position: { lineNumber: number; column: number }): void;
   focus(): void;
 }
@@ -248,12 +284,33 @@ editorController.onDirtyStateChanged(() => {
   updateFileTreeSelection(false);
 });
 
+let ctrlNavigationPressed = false;
+let hoveredEditorPosition: { lineNumber: number; column: number } | null = null;
+
+runtimeEditor.onMouseMove((event) => {
+  hoveredEditorPosition = event.target.position ?? null;
+  if (ctrlNavigationPressed && hoveredEditorPosition) {
+    editorController.showDefinitionHint(
+      hoveredEditorPosition.lineNumber,
+      hoveredEditorPosition.column,
+    );
+  } else {
+    editorController.clearDefinitionHint();
+  }
+});
+
+runtimeEditor.onMouseLeave(() => {
+  hoveredEditorPosition = null;
+  editorController.clearDefinitionHint();
+});
+
 runtimeEditor.onMouseDown((event) => {
   if (!event.event.ctrlKey || !event.target.position) {
     return;
   }
 
   event.event.preventDefault();
+  editorController.clearDefinitionHint();
   void navigateToDartDefinition(
     event.target.position.lineNumber,
     event.target.position.column,
@@ -261,10 +318,32 @@ runtimeEditor.onMouseDown((event) => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (event.key === 'Control') {
+    ctrlNavigationPressed = true;
+    if (hoveredEditorPosition) {
+      editorController.showDefinitionHint(
+        hoveredEditorPosition.lineNumber,
+        hoveredEditorPosition.column,
+      );
+    }
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
     event.preventDefault();
     void saveCurrentFile();
   }
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.key === 'Control') {
+    ctrlNavigationPressed = false;
+    editorController.clearDefinitionHint();
+  }
+});
+
+window.addEventListener('blur', () => {
+  ctrlNavigationPressed = false;
+  editorController.clearDefinitionHint();
 });
 
 openProjectButton.addEventListener('click', async () => {
