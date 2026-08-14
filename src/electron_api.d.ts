@@ -1,5 +1,6 @@
 import type { AiTutorPlan, TutorFocus } from './core/ai_tutor_plan';
 import type { SemanticFocus, SemanticNavigationResult } from './core/semantic_navigation';
+import type { SemanticAiTutorPlan, SemanticTutorMode } from './core/semantic_ai_plan';
 
 export {};
 
@@ -25,6 +26,7 @@ declare global {
       hasOpenAiKey(): Promise<boolean>;
       setOpenAiKey(apiKey: string): Promise<boolean>;
       planTutorTour(focus: TutorFocus): Promise<AiTutorPlan>;
+      planDartSemanticTour(focus: SemanticFocus, mode: SemanticTutorMode): Promise<SemanticAiTutorPlan>;
     };
   }
 }

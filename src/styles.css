@@ -584,3 +584,47 @@ button:disabled {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* Alpha 0.6：AI + Dart Call Hierarchy 教学控制。 */
+.semantic-mode {
+  height: 32px;
+  min-width: 106px;
+  border: 1px solid #343945;
+  border-radius: 7px;
+  background: #20242c;
+  color: #d7dae0;
+  padding: 0 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.semantic-mode:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.semantic-ai-button {
+  border-color: #3f6fa3;
+  background: linear-gradient(135deg, #244a73, #4f3e8f);
+  color: #f5f7ff;
+}
+
+.semantic-ai-button:hover {
+  background: linear-gradient(135deg, #2b5888, #5e4aa4);
+}
+
+.titlebar-actions {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.titlebar-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.titlebar-actions .tutor-status {
+  flex: 0 0 auto;
+  max-width: 250px;
+}

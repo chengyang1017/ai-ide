@@ -64,6 +64,124 @@ class DartLspClient {
     };
   }
 
+
+  async findCallGraph({ absolutePath, content, line, column, direction = 'both', maxDepth = 2, maxNodes = 24 }) {
+    await this.start();
+    const uri = pathToFileURL(absolutePath).toString();
+    this.syncDocument(uri, content);
+
+    const position = {
+      line: Math.max(0, line - 1),
+      character: Math.max(0, column - 1),
+    };
+
+    const prepared = await this.request('textDocument/prepareCallHierarchy', {
+      textDocument: { uri },
+      position,
+    }).catch(() => null);
+
+    const callItems = Array.isArray(prepared) ? prepared : [];
+    const rootItem = callItems[0];
+    if (!rootItem) {
+      return {
+        symbolName: '',
+        nodes: [],
+      };
+    }
+
+    const rootLocation = callHierarchyItemLocation(rootItem);
+    if (!rootLocation) {
+      return {
+        symbolName: typeof rootItem.name === 'string' ? rootItem.name : '',
+        nodes: [],
+      };
+    }
+
+    const safeDepth = Math.max(1, Math.min(Number(maxDepth) || 2, 3));
+    const safeMaxNodes = Math.max(4, Math.min(Number(maxNodes) || 24, 40));
+    const safeDirection = ['incoming', 'outgoing', 'both'].includes(direction)
+      ? direction
+      : 'both';
+
+    const nodes = [{
+      ...rootLocation,
+      relation: 'root',
+      depth: 0,
+      name: typeof rootItem.name === 'string' ? rootItem.name : '',
+      parentName: '',
+      item: rootItem,
+    }];
+    const queue = [nodes[0]];
+    const seen = new Set([callHierarchyItemKey(rootItem)]);
+
+    while (queue.length > 0 && nodes.length < safeMaxNodes) {
+      const current = queue.shift();
+      if (!current || current.depth >= safeDepth) {
+        continue;
+      }
+
+      const requests = [];
+      if (safeDirection === 'incoming' || safeDirection === 'both') {
+        requests.push(
+          this.request('callHierarchy/incomingCalls', { item: current.item })
+            .then((value) => ({ kind: 'incomingCall', value }))
+            .catch(() => ({ kind: 'incomingCall', value: [] })),
+        );
+      }
+      if (safeDirection === 'outgoing' || safeDirection === 'both') {
+        requests.push(
+          this.request('callHierarchy/outgoingCalls', { item: current.item })
+            .then((value) => ({ kind: 'outgoingCall', value }))
+            .catch(() => ({ kind: 'outgoingCall', value: [] })),
+        );
+      }
+
+      const responses = await Promise.all(requests);
+      for (const response of responses) {
+        const calls = Array.isArray(response.value) ? response.value : [];
+        for (const call of calls) {
+          if (nodes.length >= safeMaxNodes) {
+            break;
+          }
+
+          const nextItem = response.kind === 'incomingCall' ? call?.from : call?.to;
+          if (!nextItem) {
+            continue;
+          }
+
+          const key = callHierarchyItemKey(nextItem);
+          if (!key || seen.has(key)) {
+            continue;
+          }
+
+          const location = response.kind === 'incomingCall'
+            ? incomingCallSiteLocation(call) || callHierarchyItemLocation(nextItem)
+            : callHierarchyItemLocation(nextItem);
+          if (!location) {
+            continue;
+          }
+
+          seen.add(key);
+          const node = {
+            ...location,
+            relation: response.kind,
+            depth: current.depth + 1,
+            name: typeof nextItem.name === 'string' ? nextItem.name : '',
+            parentName: current.name || '',
+            item: nextItem,
+          };
+          nodes.push(node);
+          queue.push(node);
+        }
+      }
+    }
+
+    return {
+      symbolName: typeof rootItem.name === 'string' ? rootItem.name : '',
+      nodes: nodes.map(({ item, ...node }) => node),
+    };
+  }
+
   async start() {
     if (this.startPromise) {
       return this.startPromise;
@@ -419,6 +537,23 @@ function uriRangeLocation(uri, range) {
   } catch {
     return null;
   }
+}
+
+function incomingCallSiteLocation(call) {
+  const caller = call?.from;
+  const ranges = Array.isArray(call?.fromRanges) ? call.fromRanges : [];
+  const range = ranges[0] || caller?.selectionRange || caller?.range;
+  return uriRangeLocation(caller?.uri, range);
+}
+
+function callHierarchyItemKey(item) {
+  if (!item || typeof item.uri !== 'string') {
+    return '';
+  }
+
+  const range = item.selectionRange || item.range;
+  const start = range?.start;
+  return `${item.uri}:${start?.line ?? -1}:${start?.character ?? -1}:${item.name || ''}`;
 }
 
 function dedupeTargets(targets) {

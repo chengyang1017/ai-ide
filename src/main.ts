@@ -4,6 +4,7 @@ import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
 import { buildRelatedCodeMoves } from './project/project_navigator';
 import { buildSemanticTutorRoute } from './project/semantic_navigator';
+import type { SemanticTutorMode } from './core/semantic_ai_plan';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -17,7 +18,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.5 · Dart LSP 语义调用导航</small>
+          <small>Alpha 0.6 · AI + Dart 真实调用链教学</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -26,6 +27,12 @@ app.innerHTML = `
         <button id="jump-to-cursor">🤖 老师跳到光标</button>
         <button id="find-related" disabled>🧭 老师找相关代码</button>
         <button id="semantic-related" disabled>🧠 Dart 语义调用</button>
+        <select id="semantic-ai-mode" class="semantic-mode" title="AI 语义教学方向">
+          <option value="full">完整功能链</option>
+          <option value="incoming">谁调用它</option>
+          <option value="outgoing">它调用谁</option>
+        </select>
+        <button id="semantic-ai-tour" class="semantic-ai-button" disabled>🧠✨ AI 理解函数</button>
         <button id="set-api-key">🔑 API Key</button>
         <button id="ai-tour" class="ai-button" disabled>✨ AI 老师理解项目</button>
       </div>
@@ -38,8 +45,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.5</strong>
-          <p>Dart 文件现在可直接启动 Dart Analysis Server。把光标放在方法 / 函数 / 类名上，老师会按真实定义、调用者、被调用目标或语义引用跨文件跳转。</p>
+          <strong>Alpha 0.6</strong>
+          <p>把光标放在 Dart 函数 / 方法名上，Dart Analysis Server 先生成真实 Call Hierarchy，再由 AI 选择最值得教学的上游、当前函数和下游调用，角色按功能链跨文件跳着讲。</p>
         </div>
       </aside>
 
@@ -122,6 +129,8 @@ const openProjectButton = requireButton('open-project');
 const jumpToCursorButton = requireButton('jump-to-cursor');
 const findRelatedButton = requireButton('find-related');
 const semanticRelatedButton = requireButton('semantic-related');
+const semanticAiModeSelect = requireSelect('semantic-ai-mode');
+const semanticAiTourButton = requireButton('semantic-ai-tour');
 const setApiKeyButton = requireButton('set-api-key');
 const aiTourButton = requireButton('ai-tour');
 const positionStatus = requireElement('position-status');
@@ -153,6 +162,8 @@ let relatedTourSequence = 0;
 let relatedTourRunning = false;
 let semanticTourSequence = 0;
 let semanticTourRunning = false;
+let semanticAiTourSequence = 0;
+let semanticAiTourRunning = false;
 let aiTourSequence = 0;
 let aiTourRunning = false;
 
@@ -166,6 +177,7 @@ editorController.editor.onDidChangeCursorPosition((event) => {
 openProjectButton.addEventListener('click', async () => {
   stopRelatedTour('准备打开项目');
   stopSemanticTour('准备打开项目');
+  stopSemanticAiTour('准备打开项目');
   stopAiTour('准备打开项目');
   const sequence = ++projectLoadSequence;
   openProjectButton.disabled = true;
@@ -185,6 +197,7 @@ openProjectButton.addEventListener('click', async () => {
     workspaceBadge.textContent = '真实项目';
     findRelatedButton.disabled = false;
     semanticRelatedButton.disabled = false;
+    semanticAiTourButton.disabled = false;
     aiTourButton.disabled = false;
     renderFileTree(projectFiles);
     characterController.clear('项目已打开');
@@ -208,6 +221,7 @@ openProjectButton.addEventListener('click', async () => {
 jumpToCursorButton.addEventListener('click', async () => {
   stopRelatedTour('已切换到手动定位');
   stopSemanticTour('已切换到手动定位');
+  stopSemanticAiTour('已切换到手动定位');
   stopAiTour('已切换到手动定位');
   const position = editorController.editor.getPosition();
   if (!position) {
@@ -234,6 +248,7 @@ findRelatedButton.addEventListener('click', async () => {
   }
 
   stopSemanticTour('已切换到项目文本导航');
+  stopSemanticAiTour('已切换到项目文本导航');
   stopAiTour('已切换到项目文本导航');
 
   if (!isRealProject) {
@@ -325,6 +340,7 @@ semanticRelatedButton.addEventListener('click', async () => {
   }
 
   stopRelatedTour('已切换到 Dart 语义导航');
+  stopSemanticAiTour('已切换到 Dart 语义导航');
   stopAiTour('已切换到 Dart 语义导航');
 
   const sequence = ++semanticTourSequence;
@@ -372,6 +388,83 @@ semanticRelatedButton.addEventListener('click', async () => {
     if (sequence === semanticTourSequence) {
       semanticTourRunning = false;
       semanticRelatedButton.textContent = '🧠 Dart 语义调用';
+    }
+  }
+});
+
+semanticAiTourButton.addEventListener('click', async () => {
+  if (semanticAiTourRunning) {
+    stopSemanticAiTour('已停止 AI 语义教学链');
+    return;
+  }
+
+  if (!isRealProject) {
+    tutorStatus.textContent = '请先打开真实项目';
+    return;
+  }
+
+  const focus = editorController.getSemanticFocus();
+  if (!focus) {
+    tutorStatus.textContent = '请打开 Dart 文件，并把光标准确放在函数或方法名称上';
+    return;
+  }
+
+  if (!(await ensureOpenAiKey())) {
+    tutorStatus.textContent = '请先设置 OpenAI API Key，再重新点击 AI 理解函数';
+    return;
+  }
+
+  stopRelatedTour('已切换到 AI 语义教学链');
+  stopSemanticTour('已切换到 AI 语义教学链');
+  stopAiTour('已切换到 AI 语义教学链');
+
+  const mode = semanticAiModeSelect.value as SemanticTutorMode;
+  const sequence = ++semanticAiTourSequence;
+  semanticAiTourRunning = true;
+  semanticAiTourButton.textContent = '■ 停止 AI 调用链';
+  semanticAiModeSelect.disabled = true;
+  tutorStatus.textContent = `Dart Analyzer 正在建立 “${focus.query}” 的真实调用图…`;
+
+  try {
+    const plan = await window.tutorIde.planDartSemanticTour(focus, mode);
+    if (sequence !== semanticAiTourSequence) {
+      return;
+    }
+
+    if (plan.moves.length === 0) {
+      tutorStatus.textContent = 'AI 没有从这张调用图中选出可执行的教学路线';
+      return;
+    }
+
+    for (let index = 0; index < plan.moves.length; index += 1) {
+      if (sequence !== semanticAiTourSequence) {
+        return;
+      }
+
+      const move = plan.moves[index];
+      if (!move) {
+        continue;
+      }
+
+      tutorStatus.textContent = `AI 真实调用链 ${index + 1} / ${plan.moves.length} · ${move.filePath}:${move.line}`;
+      await characterController.moveTo(move);
+      updateActiveFile();
+      updateFileTreeSelection();
+      await delay(move.waitMs ?? 2100);
+    }
+
+    if (sequence === semanticAiTourSequence) {
+      tutorStatus.textContent = `✓ ${plan.summary} · ${plan.model} · 真实语义节点 ${plan.nodeCount} 个`;
+    }
+  } catch (error) {
+    if (sequence === semanticAiTourSequence) {
+      tutorStatus.textContent = errorMessage(error);
+    }
+  } finally {
+    if (sequence === semanticAiTourSequence) {
+      semanticAiTourRunning = false;
+      semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
+      semanticAiModeSelect.disabled = false;
     }
   }
 });
@@ -428,6 +521,7 @@ aiTourButton.addEventListener('click', async () => {
 
   stopRelatedTour('已切换到 AI 教学路线');
   stopSemanticTour('已切换到 AI 教学路线');
+  stopSemanticAiTour('已切换到 AI 教学路线');
   const sequence = ++aiTourSequence;
   aiTourRunning = true;
   aiTourButton.textContent = '■ 停止 AI 老师';
@@ -489,6 +583,14 @@ function stopSemanticTour(message: string): void {
   semanticTourSequence += 1;
   semanticTourRunning = false;
   semanticRelatedButton.textContent = '🧠 Dart 语义调用';
+  tutorStatus.textContent = message;
+}
+
+function stopSemanticAiTour(message: string): void {
+  semanticAiTourSequence += 1;
+  semanticAiTourRunning = false;
+  semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
+  semanticAiModeSelect.disabled = false;
   tutorStatus.textContent = message;
 }
 
@@ -583,6 +685,7 @@ function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: numbe
     button.addEventListener('click', async () => {
       stopRelatedTour('已手动切换文件');
       stopSemanticTour('已手动切换文件');
+      stopSemanticAiTour('已手动切换文件');
       stopAiTour('已手动切换文件');
       characterController.clear('已切换文件');
 
@@ -785,6 +888,14 @@ function requireButton(id: string): HTMLButtonElement {
   const element = document.getElementById(id);
   if (!(element instanceof HTMLButtonElement)) {
     throw new Error(`Missing button #${id}`);
+  }
+  return element;
+}
+
+function requireSelect(id: string): HTMLSelectElement {
+  const element = document.getElementById(id);
+  if (!(element instanceof HTMLSelectElement)) {
+    throw new Error(`Missing select #${id}`);
   }
   return element;
 }

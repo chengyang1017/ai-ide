@@ -36,6 +36,8 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || 'gpt-5.2';
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const MAX_AI_CANDIDATES = 14;
 const AI_CONTEXT_RADIUS = 5;
+const MAX_SEMANTIC_AI_NODES = 24;
+const SEMANTIC_AI_CONTEXT_RADIUS = 4;
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -220,6 +222,84 @@ ipcMain.handle('ai:plan-tour', async (_event, rawFocus) => {
   };
 });
 
+
+ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  if (!runtimeOpenAiKey) {
+    throw new Error('请先设置 OpenAI API Key。');
+  }
+
+  const focus = validateSemanticFocus(rawFocus);
+  if (!focus.filePath.toLowerCase().endsWith('.dart')) {
+    throw new Error('Alpha 0.6 先支持 Dart 函数 / 方法的语义教学链。');
+  }
+
+  const mode = validateSemanticTutorMode(rawMode);
+  if (!dartLspClient) {
+    dartLspClient = new DartLspClient(currentProjectRoot);
+  }
+
+  const absolutePath = resolveInsideProject(currentProjectRoot, focus.filePath);
+  const graph = await dartLspClient.findCallGraph({
+    absolutePath,
+    content: focus.documentText,
+    line: focus.line,
+    column: focus.column,
+    direction: mode === 'incoming' ? 'incoming' : mode === 'outgoing' ? 'outgoing' : 'both',
+    maxDepth: mode === 'full' ? 2 : 3,
+    maxNodes: MAX_SEMANTIC_AI_NODES,
+  });
+
+  if (!graph.nodes.length) {
+    throw new Error(`Dart Analyzer 没有为 “${focus.query}” 提供 Call Hierarchy。请把光标放在函数或方法名称上。`);
+  }
+
+  const candidates = await buildSemanticAiCandidates(graph.nodes);
+  if (!candidates.length) {
+    throw new Error('调用关系存在，但都位于当前项目之外；Alpha 0.6 默认不展开 Flutter SDK / 第三方包。');
+  }
+
+  const aiPlan = await requestSemanticTutorPlan({
+    focus,
+    mode,
+    symbolName: graph.symbolName || focus.query,
+    candidates,
+  });
+
+  return {
+    summary: aiPlan.summary,
+    model: OPENAI_MODEL,
+    mode,
+    symbolName: graph.symbolName || focus.query,
+    nodeCount: candidates.length,
+    moves: aiPlan.steps.map((step) => {
+      const candidate = candidates.find((item) => item.id === step.candidateId);
+      if (!candidate) {
+        throw new Error(`AI 返回了不存在的语义节点：${step.candidateId}`);
+      }
+
+      return {
+        filePath: candidate.path,
+        line: candidate.line,
+        column: candidate.column,
+        action: step.action,
+        speech: step.speech,
+        waitMs: 2100,
+      };
+    }),
+  };
+});
+
+function validateSemanticTutorMode(value) {
+  if (value === 'incoming' || value === 'outgoing' || value === 'full') {
+    return value;
+  }
+  return 'full';
+}
+
 function validateSemanticFocus(value) {
   if (!value || typeof value !== 'object') {
     throw new Error('当前语义导航上下文无效。');
@@ -306,6 +386,49 @@ function validateTutorFocus(value) {
   };
 }
 
+async function buildSemanticAiCandidates(nodes) {
+  const candidates = [];
+  const seen = new Set();
+
+  for (const node of nodes) {
+    if (candidates.length >= MAX_SEMANTIC_AI_NODES) {
+      break;
+    }
+
+    const relativePath = toProjectRelativePath(node.absolutePath);
+    if (!relativePath || !currentProjectFiles.includes(relativePath)) {
+      continue;
+    }
+
+    const key = `${relativePath}:${node.line}:${node.column}:${node.relation}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const snippet = await readSnippet(
+      relativePath,
+      node.line,
+      SEMANTIC_AI_CONTEXT_RADIUS,
+    );
+
+    candidates.push({
+      id: `semantic-${candidates.length}`,
+      path: relativePath,
+      line: node.line,
+      column: node.column,
+      relation: node.relation,
+      depth: node.depth,
+      name: node.name || '',
+      parentName: node.parentName || '',
+      preview: snippet.focusLine,
+      snippet: snippet.text,
+    });
+  }
+
+  return candidates;
+}
+
 async function buildTutorCandidates(focus) {
   const candidates = [];
   const seen = new Set();
@@ -378,6 +501,107 @@ async function readSnippet(relativePath, focusLine, radius) {
     text,
     focusLine: lines[safeFocus - 1]?.trim() || '',
   };
+}
+
+async function requestSemanticTutorPlan({ focus, mode, symbolName, candidates }) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  try {
+    const response = await fetch(`${OPENAI_BASE_URL}/responses`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${runtimeOpenAiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        reasoning: { effort: 'low' },
+        input: [
+          {
+            role: 'system',
+            content: SEMANTIC_AI_TUTOR_SYSTEM_PROMPT,
+          },
+          {
+            role: 'user',
+            content: buildSemanticTutorPrompt(focus, mode, symbolName, candidates),
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'ai_code_tutor_semantic_tour',
+            strict: true,
+            schema: buildAiTutorSchema(candidates),
+          },
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload?.error?.message || `OpenAI API 请求失败（HTTP ${response.status}）`;
+      throw new Error(message);
+    }
+
+    if (payload.status === 'incomplete') {
+      throw new Error(`AI 返回内容不完整：${payload.incomplete_details?.reason || 'unknown'}`);
+    }
+
+    const outputText = extractOpenAiOutputText(payload);
+    const decoded = JSON.parse(outputText);
+    validateAiPlan(decoded, candidates);
+    return decoded;
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('AI 语义调用链分析超时，请稍后重试。');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildSemanticTutorPrompt(focus, mode, symbolName, candidates) {
+  const modeLabel = mode === 'incoming'
+    ? '重点解释谁调用它（incoming calls）'
+    : mode === 'outgoing'
+      ? '重点解释它调用谁（outgoing calls）'
+      : '从入口、当前函数到后续调用中选择最适合教学的一条功能链';
+
+  const candidateText = candidates.map((candidate) => {
+    const relation = semanticRelationLabel(candidate.relation);
+    return `语义节点 ID：${candidate.id}
+关系：${relation}
+层级：${candidate.depth}
+符号：${candidate.name || '(未知)'}
+父节点：${candidate.parentName || '(根节点)'}
+文件：${candidate.path}
+目标：第 ${candidate.line} 行，第 ${candidate.column} 列
+代码：
+${candidate.snippet}`;
+  }).join('\n\n---\n\n');
+
+  return `用户正在学习一个真实 Dart / Flutter 项目。
+
+当前符号：${symbolName}
+当前文件：${focus.filePath}
+当前位置：第 ${focus.line} 行，第 ${focus.column} 列
+教学模式：${modeLabel}
+
+下面的节点全部来自 Dart Analysis Server 的 Call Hierarchy，不是文本同名搜索。IDE 已经过滤掉项目外的 Flutter SDK / 第三方包。你只能从这些真实语义节点 ID 中选择角色路线，不能编造文件、行号或关系。
+
+${candidateText}
+
+请规划 1 到 6 步。优先形成能让学习者理解“入口 → 当前函数 → 关键下游调用”或所选方向的清晰路线。不要机械遍历全部节点；相同意义的节点可以跳过。`;
+}
+
+function semanticRelationLabel(relation) {
+  if (relation === 'root') return '当前函数 / 方法';
+  if (relation === 'incomingCall') return '调用当前节点的上游函数';
+  if (relation === 'outgoingCall') return '当前节点调用的下游函数';
+  return String(relation || 'unknown');
 }
 
 async function requestTutorPlan(focus, candidates) {
@@ -488,6 +712,21 @@ function validateAiPlan(plan, candidates) {
     }
   }
 }
+
+const SEMANTIC_AI_TUTOR_SYSTEM_PROMPT = `你是住在代码编辑器里的 AI 编程导师。
+IDE 已经通过 Dart Analysis Server / LSP 得到了真实 Call Hierarchy。你的任务是把这些真实语义节点组织成适合学习的调用链，并让角色按顺序跨文件跳着讲。
+
+要求：
+1. 使用简体中文，像老师带学生读真实项目一样自然。
+2. 只能选择提示中存在的 candidateId，绝对不能编造文件、行号、函数或调用关系。
+3. root 是用户当前函数；incomingCall 是上游调用者；outgoingCall 是下游被调用函数。
+4. 优先讲清“为什么从这里开始”“控制流/功能链怎么继续”“这个调用为什么重要”。
+5. 不要机械遍历所有 Call Hierarchy 节点，选择 1 到 6 个最有教学价值的位置。
+6. 默认只讨论用户项目内部代码；IDE 已经把 Flutter SDK 和第三方包节点过滤掉。
+7. 如果调用图不足以证明完整业务流程，要明确说当前语义链能证明到哪里，不要脑补。
+8. speech 一般 1 到 3 句话，必须围绕当前节点与上一/下一节点的真实关系。
+9. action 只能是 jump、point、think：跨文件/跨位置用 jump，具体代码解释用 point，关系总结用 think。
+10. summary 用 1 到 2 句话概括这条语义教学路线。`;
 
 const AI_TUTOR_SYSTEM_PROMPT = `你是住在代码编辑器里的 AI 编程导师。
 你的工作不是把所有搜索结果逐个念出来，而是从 IDE 已提供的真实候选代码位置中，规划一条适合学习者理解代码功能链的路线。
