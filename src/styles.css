@@ -952,7 +952,7 @@ button:disabled {
 
 /* Alpha 0.12：更像桌面 IDE 的双层命令区。 */
 .ide-shell {
-  grid-template-rows: 40px 44px minmax(0, 1fr) 24px;
+  grid-template-rows: 40px 52px minmax(0, 1fr) 24px;
 }
 
 .titlebar {
@@ -1008,7 +1008,7 @@ button:disabled {
   align-items: stretch;
   gap: 10px;
   min-width: 0;
-  padding: 5px 10px;
+  padding: 6px 10px 8px;
   overflow-x: auto;
   overflow-y: hidden;
   border-bottom: 1px solid #292e37;
@@ -1231,21 +1231,26 @@ button:disabled {
   }
 }
 
-/* Alpha 0.13：命令分组标题和按钮之间留出真正的呼吸空间。 */
+/* Alpha 0.14：命令组上下都留白，不再只修标题和按钮之间的一半间距。 */
 .command-group {
-  padding-top: 14px;
+  padding: 14px 0 4px;
 }
 
 .command-group-label {
-  top: 0;
-  line-height: 8px;
+  top: 2px;
+  line-height: 9px;
 }
 
-/* Alpha 0.13：持久代码便签。光标所在行显示“＋”，已有便签显示 📝。 */
+.command-divider {
+  margin-top: 8px;
+  margin-bottom: 7px;
+}
+
+/* Alpha 0.14 hotfix：代码内便签与行号便签同时存在，不再使用全局二选一。 */
 .code-note-hint {
-  color: #7f8795;
-  font-family: Inter, sans-serif;
-  font-size: 9px;
+  flex: 0 0 auto;
+  color: #727c8b;
+  font: 9px/1 Inter, "Segoe UI", sans-serif;
   white-space: nowrap;
 }
 
@@ -1283,17 +1288,64 @@ button:disabled {
   filter: saturate(.85);
 }
 
+.code-note-inline-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 32;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.code-note-inline-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #414958;
+  border-radius: 5px;
+  background: rgb(24 28 35 / 94%);
+  box-shadow: 0 3px 9px rgb(0 0 0 / 24%);
+  color: #a8b1bf;
+  font: 700 10px/1 Inter, sans-serif;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.code-note-inline-marker:hover {
+  border-color: #7768e9;
+  background: #252a34;
+  transform: translateY(-1px);
+}
+
+.code-note-inline-marker.has-note {
+  border-color: #4b5362;
+  font-size: 12px;
+}
+
+.code-note-inline-marker.add-note {
+  color: #9ea7b5;
+  opacity: .78;
+}
+
+.code-note-inline-marker.add-note:hover {
+  color: #e2deff;
+  opacity: 1;
+}
+
 .code-note-popover {
   position: absolute;
-  z-index: 45;
+  z-index: 46;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  height: 212px;
+  grid-template-rows: auto auto auto;
+  box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid #464d5a;
-  border-radius: 10px;
-  background: rgb(24 28 35 / 98%);
-  box-shadow: 0 18px 46px rgb(0 0 0 / 46%);
+  border: 1px solid #414958;
+  border-radius: 9px;
+  background: rgb(23 27 34 / 99%);
+  box-shadow: 0 16px 36px rgb(0 0 0 / 44%);
   color: #dfe4ec;
 }
 
@@ -1305,76 +1357,92 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 9px 10px 7px 12px;
+  gap: 8px;
+  padding: 7px 7px 6px 9px;
   border-bottom: 1px solid #303641;
 }
 
-.code-note-header > div {
+.code-note-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
 }
 
 .code-note-header strong {
-  display: block;
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .code-note-line {
-  display: block;
-  margin-top: 2px;
-  overflow: hidden;
-  color: #7f8998;
-  font: 9px/1.3 "Cascadia Code", Consolas, monospace;
-  text-overflow: ellipsis;
+  color: #747e8e;
+  font: 9px/1.2 "Cascadia Code", Consolas, monospace;
   white-space: nowrap;
 }
 
 .code-note-close {
   flex: 0 0 auto;
-  min-width: 25px;
-  height: 25px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
   padding: 0;
   border-color: transparent;
   background: transparent;
-  color: #9ba4b1;
-  font-size: 18px;
+  color: #8993a1;
+  font-size: 16px;
   line-height: 1;
 }
 
+.code-note-close:hover {
+  background: #292e37;
+  color: #d7dce4;
+}
+
 .code-note-textarea {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 0;
-  resize: none;
+  min-height: 92px;
+  max-height: 180px;
+  resize: vertical;
   border: 0;
   outline: none;
   background: #151920;
   color: #e5e9f0;
-  padding: 10px 12px;
-  font: 12px/1.55 Inter, "Segoe UI", sans-serif;
+  padding: 9px 10px;
+  font: 11px/1.5 Inter, "Segoe UI", sans-serif;
 }
 
 .code-note-textarea::placeholder {
-  color: #606a78;
+  color: #626c7a;
 }
 
 .code-note-actions {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 9px;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 7px;
   border-top: 1px solid #303641;
 }
 
 .code-note-actions > span {
+  min-width: 0;
   margin-right: auto;
+  overflow: hidden;
   color: #687281;
-  font-size: 9px;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .code-note-actions button {
-  min-height: 27px;
-  padding: 4px 9px;
-  font-size: 10px;
+  flex: 0 0 auto;
+  min-height: 25px;
+  padding: 3px 8px;
+  font-size: 9px;
 }
 
 .code-note-delete {

@@ -95,8 +95,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.13</strong>
-          <p>代码行旁可以添加持久便签：写理解、TODO、问题都不会改动源码。重启 IDE 后便签仍会跟着项目和文件恢复。</p>
+          <strong>Alpha 0.14</strong>
+          <p>持久便签支持两种锚点同时存在：光标所在的代码位置，或左侧行号旁。旧的行号便签不会消失。</p>
         </div>
       </aside>
 
@@ -105,7 +105,7 @@ app.innerHTML = `
           <span id="editor-tab-dot" class="editor-tab-dot" data-dirty="false"></span>
           <span id="active-file">src/app.ts</span>
           <span id="editor-save-state" class="editor-save-state">✓ 已保存</span>
-          <span class="code-note-hint" title="把光标移到一行，然后点击行号旁的 📝＋">行号旁 📝＋ 添加便签</span>
+          <span class="code-note-hint" title="光标位置出现＋可添加代码内便签；行号旁也会出现＋，两种便签可以同时存在">📝 双位置便签</span>
           <span id="workspace-badge" class="tab-badge">Demo</span>
         </div>
 

@@ -55,7 +55,9 @@ declare global {
       upsertCodeNote(note: {
         id: string;
         filePath: string;
+        placement: 'inline' | 'gutter';
         line: number;
+        column: number;
         anchorText: string;
         text: string;
       }): Promise<CodeNote>;

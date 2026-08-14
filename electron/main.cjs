@@ -204,7 +204,7 @@ ipcMain.handle('notes:list', async (_event, relativePath) => {
   return codeNotes
     .filter((note) => note.projectRoot === currentProjectRoot && note.filePath === filePath)
     .map(({ projectRoot: _projectRoot, ...note }) => ({ ...note }))
-    .sort((a, b) => a.line - b.line || a.createdAt.localeCompare(b.createdAt));
+    .sort((a, b) => a.line - b.line || a.column - b.column || a.createdAt.localeCompare(b.createdAt));
 });
 
 ipcMain.handle('notes:upsert', async (_event, rawNote) => {
@@ -222,10 +222,15 @@ ipcMain.handle('notes:upsert', async (_event, rawNote) => {
     throw new Error('单个代码便签最多 20000 个字符。');
   }
 
+  const placement = input.placement === 'inline' ? 'inline' : 'gutter';
   const line = Number(input.line);
   if (!Number.isInteger(line) || line < 1) {
     throw new Error('便签行号无效。');
   }
+  const rawColumn = Number(input.column);
+  const column = placement === 'inline' && Number.isInteger(rawColumn) && rawColumn > 0
+    ? rawColumn
+    : 1;
 
   const anchorText = typeof input.anchorText === 'string'
     ? input.anchorText.trim().slice(0, 500)
@@ -245,7 +250,9 @@ ipcMain.handle('notes:upsert', async (_event, rawNote) => {
     ? {
         ...codeNotes[existingIndex],
         filePath,
+        placement,
         line,
+        column,
         anchorText,
         text,
         updatedAt: now,
@@ -254,7 +261,9 @@ ipcMain.handle('notes:upsert', async (_event, rawNote) => {
         id: randomUUID(),
         projectRoot: currentProjectRoot,
         filePath,
+        placement,
         line,
+        column,
         anchorText,
         text,
         createdAt: now,
@@ -1151,7 +1160,9 @@ async function ensureCodeNotesLoaded() {
       id: note.id,
       projectRoot: path.resolve(note.projectRoot),
       filePath: normalizeRelativePath(note.filePath),
+      placement: note.placement === 'inline' ? 'inline' : 'gutter',
       line: note.line,
+      column: note.placement === 'inline' && Number.isInteger(note.column) && note.column > 0 ? note.column : 1,
       anchorText: typeof note.anchorText === 'string' ? note.anchorText.slice(0, 500) : '',
       text: note.text.slice(0, 20000),
       createdAt: typeof note.createdAt === 'string' ? note.createdAt : new Date(0).toISOString(),
@@ -1167,7 +1178,7 @@ async function ensureCodeNotesLoaded() {
 async function saveCodeNotes() {
   const filePath = codeNotesFilePath();
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify({ version: 1, notes: codeNotes }, null, 2), 'utf8');
+  await fs.writeFile(filePath, JSON.stringify({ version: 2, notes: codeNotes }, null, 2), 'utf8');
 }
 
 function validateVoiceState(value) {
