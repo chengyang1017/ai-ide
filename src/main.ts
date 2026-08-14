@@ -19,7 +19,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.9 · 多语言系统语音</small>
+          <small>Alpha 0.10 · 原生语音 + 会话恢复</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -37,6 +37,9 @@ app.innerHTML = `
         <button id="voice-toggle" class="voice-button">🔊 语音开启</button>
         <select id="voice-language" class="voice-language" title="语音语言">
           <option value="zh-CN">中文（简体）</option>
+        </select>
+        <select id="voice-select" class="voice-select" title="具体系统声音">
+          <option value="">自动选择声音</option>
         </select>
         <select id="voice-rate" class="voice-rate" title="语音速度">
           <option value="0.8">0.8×</option>
@@ -56,8 +59,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.9</strong>
-          <p>系统语音现在可以选择语言。IDE 会读取 Windows / Chromium 已安装的声音，优先使用所选语言；没有对应声音时会明确提示，而不是悄悄使用英文默认音。</p>
+          <strong>Alpha 0.10</strong>
+          <p>Windows 版优先使用 Windows.Media.SpeechSynthesis 原生语音，并支持语言 + 具体声音选择。IDE 会自动恢复上次项目、文件、语音设置，并用系统安全存储加密保存 API Key。</p>
         </div>
       </aside>
 
@@ -102,7 +105,7 @@ app.innerHTML = `
       <div class="api-key-dialog-header">
         <div>
           <strong id="api-key-title">OpenAI API Key</strong>
-          <p>只保存在当前 Electron 进程内存中，关闭 IDE 后自动清除。</p>
+          <p>使用 Electron safeStorage 加密后保存到本机；Windows 使用当前用户的 DPAPI 保护。</p>
         </div>
         <button id="api-key-close" class="icon-button" type="button" aria-label="关闭">×</button>
       </div>
@@ -121,8 +124,10 @@ app.innerHTML = `
       <div id="api-key-error" class="api-key-error" aria-live="polite"></div>
 
       <div class="api-key-dialog-actions">
+        <button id="api-key-clear" class="danger-button" type="button">清除已保存 Key</button>
+        <span class="dialog-spacer"></span>
         <button id="api-key-cancel" type="button">取消</button>
-        <button id="api-key-save" class="primary-button" type="button">保存到当前会话</button>
+        <button id="api-key-save" class="primary-button" type="button">加密保存到本机</button>
       </div>
     </section>
   </div>
@@ -145,6 +150,7 @@ const semanticAiModeSelect = requireSelect('semantic-ai-mode');
 const semanticAiTourButton = requireButton('semantic-ai-tour');
 const voiceToggleButton = requireButton('voice-toggle');
 const voiceLanguageSelect = requireSelect('voice-language');
+const voiceSelect = requireSelect('voice-select');
 const voiceRateSelect = requireSelect('voice-rate');
 const setApiKeyButton = requireButton('set-api-key');
 const aiTourButton = requireButton('ai-tour');
@@ -155,10 +161,14 @@ const apiKeyInput = requireInput('api-key-input');
 const apiKeyError = requireElement('api-key-error');
 const apiKeyCloseButton = requireButton('api-key-close');
 const apiKeyCancelButton = requireButton('api-key-cancel');
+const apiKeyClearButton = requireButton('api-key-clear');
 const apiKeySaveButton = requireButton('api-key-save');
 
 const editorController = new EditorController(editorElement, demoFiles);
-let preferredVoiceLanguage = localStorage.getItem('tutor.voiceLanguage') ?? 'zh-CN';
+let preferredVoiceLanguage = 'zh-CN';
+let preferredVoiceId = '';
+let preferredVoiceRate = 1;
+let voiceEnabledPreference = true;
 
 const voiceController = new VoiceController({
   character: characterElement,
@@ -167,12 +177,9 @@ const voiceController = new VoiceController({
   },
   onVoicesChanged: (languages) => {
     renderVoiceLanguageOptions(languages);
+    renderVoiceOptions();
   },
 });
-let voiceEnabledPreference = true;
-voiceController.setLanguage(preferredVoiceLanguage);
-voiceController.setEnabled(true);
-renderVoiceLanguageOptions(voiceController.getLanguageOptions());
 
 const characterController = new CharacterController(
   editorController,
@@ -224,26 +231,7 @@ openProjectButton.addEventListener('click', async () => {
       return;
     }
 
-    projectFiles = result.files;
-    isRealProject = true;
-    projectName.textContent = `▾ ${result.projectName}`;
-    projectRoot.textContent = result.rootPath;
-    workspaceBadge.textContent = '真实项目';
-    findRelatedButton.disabled = false;
-    semanticRelatedButton.disabled = false;
-    semanticAiTourButton.disabled = false;
-    aiTourButton.disabled = false;
-    renderFileTree(projectFiles);
-    characterController.clear('项目已打开');
-
-    const firstFile = chooseInitialFile(projectFiles);
-    if (!firstFile) {
-      activeFile.textContent = '没有可读取的代码文件';
-      tutorStatus.textContent = '项目中没有找到支持的文本代码文件';
-      return;
-    }
-
-    await openRealProjectFile(firstFile, true, false);
+    await activateRealProject(result, result.lastOpenFile ?? '');
     tutorStatus.textContent = `✓ 已读取 ${projectFiles.length} 个代码文件`;
   } catch (error) {
     tutorStatus.textContent = errorMessage(error);
@@ -506,21 +494,37 @@ semanticAiTourButton.addEventListener('click', async () => {
 voiceToggleButton.addEventListener('click', () => {
   voiceEnabledPreference = !voiceEnabledPreference;
   voiceController.setEnabled(voiceEnabledPreference);
-  voiceToggleButton.textContent = voiceEnabledPreference
-    ? '🔊 语音开启'
-    : '🔇 语音关闭';
+  updateVoiceToggleLabel();
+  void persistVoicePreferences();
 });
 
 voiceLanguageSelect.addEventListener('change', () => {
   preferredVoiceLanguage = voiceLanguageSelect.value;
-  localStorage.setItem('tutor.voiceLanguage', preferredVoiceLanguage);
+  preferredVoiceId = '';
   voiceController.stop();
   voiceController.setLanguage(preferredVoiceLanguage);
+  renderVoiceOptions();
+
+  const firstVoice = voiceController.getVoiceOptions(preferredVoiceLanguage)[0];
+  if (firstVoice) {
+    preferredVoiceId = firstVoice.id;
+    voiceController.setVoice(firstVoice.id);
+    voiceSelect.value = firstVoice.id;
+  }
+  void persistVoicePreferences();
+});
+
+voiceSelect.addEventListener('change', () => {
+  preferredVoiceId = voiceSelect.value;
+  voiceController.stop();
+  voiceController.setVoice(preferredVoiceId);
+  void persistVoicePreferences();
 });
 
 voiceRateSelect.addEventListener('change', () => {
-  voiceController.setRate(Number(voiceRateSelect.value));
-  voiceStatus.textContent = `语音：${voiceRateSelect.value}× · ${voiceLanguageSelect.selectedOptions[0]?.textContent ?? preferredVoiceLanguage}`;
+  preferredVoiceRate = Number(voiceRateSelect.value);
+  voiceController.setRate(preferredVoiceRate);
+  void persistVoicePreferences();
 });
 
 setApiKeyButton.addEventListener('click', () => {
@@ -529,6 +533,9 @@ setApiKeyButton.addEventListener('click', () => {
 
 apiKeyCloseButton.addEventListener('click', closeApiKeyDialog);
 apiKeyCancelButton.addEventListener('click', closeApiKeyDialog);
+apiKeyClearButton.addEventListener('click', () => {
+  void clearStoredApiKey();
+});
 apiKeySaveButton.addEventListener('click', () => {
   void saveApiKeyFromDialog();
 });
@@ -680,7 +687,7 @@ function closeApiKeyDialog(): void {
   apiKeyInput.value = '';
   apiKeyError.textContent = '';
   apiKeySaveButton.disabled = false;
-  apiKeySaveButton.textContent = '保存到当前会话';
+  apiKeySaveButton.textContent = '加密保存到本机';
 }
 
 async function saveApiKeyFromDialog(): Promise<void> {
@@ -693,18 +700,121 @@ async function saveApiKeyFromDialog(): Promise<void> {
 
   apiKeyError.textContent = '';
   apiKeySaveButton.disabled = true;
-  apiKeySaveButton.textContent = '保存中…';
+  apiKeySaveButton.textContent = '加密保存中…';
 
   try {
     await window.tutorIde.setOpenAiKey(apiKey);
     closeApiKeyDialog();
-    tutorStatus.textContent = '✓ OpenAI API Key 已放入当前进程内存';
+    tutorStatus.textContent = '✓ OpenAI API Key 已使用系统安全存储加密保存';
+    setApiKeyButton.textContent = '🔑 API Key ✓';
   } catch (error) {
     apiKeyError.textContent = errorMessage(error);
     apiKeySaveButton.disabled = false;
-    apiKeySaveButton.textContent = '保存到当前会话';
+    apiKeySaveButton.textContent = '加密保存到本机';
     apiKeyInput.focus();
   }
+}
+
+async function clearStoredApiKey(): Promise<void> {
+  apiKeyError.textContent = '';
+  apiKeyClearButton.disabled = true;
+  try {
+    await window.tutorIde.clearOpenAiKey();
+    closeApiKeyDialog();
+    setApiKeyButton.textContent = '🔑 API Key';
+    tutorStatus.textContent = '✓ 已清除本机保存的 OpenAI API Key';
+  } catch (error) {
+    apiKeyError.textContent = errorMessage(error);
+  } finally {
+    apiKeyClearButton.disabled = false;
+  }
+}
+
+async function persistVoicePreferences(): Promise<void> {
+  try {
+    await window.tutorIde.updateVoiceState({
+      enabled: voiceEnabledPreference,
+      language: preferredVoiceLanguage,
+      voiceId: preferredVoiceId,
+      rate: preferredVoiceRate,
+    });
+  } catch (error) {
+    console.warn('Failed to persist voice preferences:', error);
+  }
+}
+
+function updateVoiceToggleLabel(): void {
+  voiceToggleButton.textContent = voiceEnabledPreference
+    ? '🔊 语音开启'
+    : '🔇 语音关闭';
+}
+
+async function initializeApplication(): Promise<void> {
+  tutorStatus.textContent = '正在恢复上次工作区…';
+  try {
+    const state = await window.tutorIde.getAppState();
+    preferredVoiceLanguage = state.voice.language || 'zh-CN';
+    preferredVoiceId = state.voice.voiceId || '';
+    preferredVoiceRate = Number.isFinite(state.voice.rate) ? state.voice.rate : 1;
+    voiceEnabledPreference = state.voice.enabled !== false;
+
+    voiceController.setLanguage(preferredVoiceLanguage);
+    voiceController.setRate(preferredVoiceRate);
+    await voiceController.initialize();
+    voiceController.setVoice(preferredVoiceId);
+    voiceController.setEnabled(voiceEnabledPreference);
+
+    voiceRateSelect.value = String(preferredVoiceRate);
+    if (!voiceRateSelect.value) {
+      voiceRateSelect.value = '1';
+      preferredVoiceRate = 1;
+      voiceController.setRate(1);
+    }
+    renderVoiceLanguageOptions(voiceController.getLanguageOptions());
+    renderVoiceOptions();
+    updateVoiceToggleLabel();
+    setApiKeyButton.textContent = state.hasOpenAiKey ? '🔑 API Key ✓' : '🔑 API Key';
+
+    const restored = await window.tutorIde.restoreProject();
+    if (restored) {
+      await activateRealProject(restored, restored.lastOpenFile);
+      tutorStatus.textContent = `✓ 已恢复 ${restored.projectName} · ${editorController.path}`;
+      return;
+    }
+
+    tutorStatus.textContent = '等待打开项目';
+  } catch (error) {
+    tutorStatus.textContent = errorMessage(error);
+    await voiceController.initialize();
+  }
+}
+
+async function activateRealProject(
+  result: { rootPath: string; projectName: string; files: string[] },
+  preferredFile: string,
+): Promise<void> {
+  projectFiles = result.files;
+  isRealProject = true;
+  projectName.textContent = `▾ ${result.projectName}`;
+  projectRoot.textContent = result.rootPath;
+  workspaceBadge.textContent = '真实项目';
+  findRelatedButton.disabled = false;
+  semanticRelatedButton.disabled = false;
+  semanticAiTourButton.disabled = false;
+  aiTourButton.disabled = false;
+  renderFileTree(projectFiles);
+  characterController.clear('项目已打开');
+
+  const targetFile = preferredFile && projectFiles.includes(preferredFile)
+    ? preferredFile
+    : chooseInitialFile(projectFiles);
+  if (!targetFile) {
+    activeFile.textContent = '没有可读取的代码文件';
+    tutorStatus.textContent = '项目中没有找到支持的文本代码文件';
+    return;
+  }
+
+  await openRealProjectFile(targetFile, true, true);
 }
 
 function renderFileTree(paths: string[]): void {
@@ -1044,6 +1154,38 @@ function renderVoiceLanguageOptions(
   voiceLanguageSelect.value = selected;
 }
 
+function renderVoiceOptions(): void {
+  const voices = voiceController.getVoiceOptions(preferredVoiceLanguage);
+  voiceSelect.replaceChildren();
+
+  if (voices.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '当前语言没有可用声音';
+    voiceSelect.appendChild(option);
+    voiceSelect.disabled = true;
+    preferredVoiceId = '';
+    voiceController.setVoice('');
+    return;
+  }
+
+  voiceSelect.disabled = false;
+  for (const voice of voices) {
+    const option = document.createElement('option');
+    option.value = voice.id;
+    const gender = voice.gender ? ` · ${voice.gender}` : '';
+    option.textContent = `${voice.name}${gender}`;
+    voiceSelect.appendChild(option);
+  }
+
+  const hasPreferred = voices.some((voice) => voice.id === preferredVoiceId);
+  if (!hasPreferred) {
+    preferredVoiceId = voices[0]?.id ?? '';
+    voiceController.setVoice(preferredVoiceId);
+  }
+  voiceSelect.value = preferredVoiceId;
+}
+
 function requireElement(id: string): HTMLElement {
   const element = document.getElementById(id);
   if (!element) {
@@ -1092,6 +1234,8 @@ function escapeText(value: string): string {
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
+
+void initializeApplication();
 
 window.addEventListener('beforeunload', () => {
   voiceController.stop();

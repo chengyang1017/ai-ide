@@ -730,3 +730,105 @@ button:disabled {
 .voice-language option[data-available="false"] {
   color: #8e96a3;
 }
+
+/* Alpha 0.10：工具栏永远保持可访问，不再把最右侧按钮裁掉。 */
+.titlebar {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.brand {
+  flex: 0 0 auto;
+  min-width: 180px;
+}
+
+.titlebar-actions {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+}
+
+.titlebar-actions::-webkit-scrollbar {
+  display: block;
+  height: 4px;
+}
+
+.titlebar-actions::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #3b414d;
+}
+
+.titlebar-actions > button,
+.titlebar-actions > select {
+  flex: 0 0 auto;
+}
+
+.titlebar-actions .tutor-status {
+  flex: 0 1 170px;
+  min-width: 80px;
+  max-width: 170px;
+}
+
+.voice-select {
+  height: 32px;
+  min-width: 150px;
+  max-width: 210px;
+  border: 1px solid #343945;
+  border-radius: 7px;
+  background: #20242c;
+  color: #d7dae0;
+  padding: 0 7px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.voice-select:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.dialog-spacer {
+  flex: 1;
+}
+
+.danger-button {
+  border-color: #744248;
+  background: #382126;
+  color: #ffb7be;
+}
+
+.danger-button:hover {
+  background: #48292f;
+}
+
+@media (max-width: 1650px) {
+  .titlebar-actions .tutor-status {
+    display: none;
+  }
+
+  .brand {
+    min-width: 165px;
+  }
+
+  .voice-language,
+  .voice-select {
+    max-width: 170px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .brand small {
+    display: none;
+  }
+
+  .brand {
+    min-width: 138px;
+  }
+}

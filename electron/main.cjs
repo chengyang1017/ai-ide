@@ -1,7 +1,8 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron/main');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { DartLspClient } = require('./dart_lsp.cjs');
+const { WindowsTtsBridge } = require('./windows_tts.cjs');
 
 const IGNORED_DIRECTORIES = new Set([
   '.git',
@@ -31,6 +32,22 @@ let currentProjectRoot = null;
 let currentProjectFiles = [];
 let runtimeOpenAiKey = process.env.OPENAI_API_KEY?.trim() || '';
 let dartLspClient = null;
+const windowsTts = new WindowsTtsBridge();
+
+const DEFAULT_APP_STATE = {
+  version: 1,
+  lastProjectRoot: '',
+  lastOpenFile: '',
+  voice: {
+    enabled: true,
+    language: 'zh-CN',
+    voiceId: '',
+    rate: 1,
+  },
+  encryptedOpenAiKey: '',
+};
+
+let persistentState = structuredClone(DEFAULT_APP_STATE);
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || 'gpt-5.2';
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -73,17 +90,33 @@ ipcMain.handle('project:open', async () => {
   }
 
   const rootPath = path.resolve(result.filePaths[0]);
-  const files = await collectProjectFiles(rootPath);
-  dartLspClient?.dispose();
-  dartLspClient = null;
-  currentProjectRoot = rootPath;
-  currentProjectFiles = files;
+  const project = await loadProjectRoot(rootPath);
+  persistentState.lastProjectRoot = rootPath;
+  persistentState.lastOpenFile = '';
+  await savePersistentState();
+  return { ...project, lastOpenFile: '' };
+});
 
-  return {
-    rootPath,
-    projectName: path.basename(rootPath),
-    files,
-  };
+ipcMain.handle('project:restore', async () => {
+  const rootPath = persistentState.lastProjectRoot;
+  if (!rootPath) {
+    return null;
+  }
+
+  try {
+    const stat = await fs.stat(rootPath);
+    if (!stat.isDirectory()) {
+      return null;
+    }
+
+    const project = await loadProjectRoot(rootPath);
+    const lastOpenFile = currentProjectFiles.includes(persistentState.lastOpenFile)
+      ? persistentState.lastOpenFile
+      : '';
+    return { ...project, lastOpenFile };
+  } catch {
+    return null;
+  }
 });
 
 ipcMain.handle('project:read-file', async (_event, relativePath) => {
@@ -107,8 +140,11 @@ ipcMain.handle('project:read-file', async (_event, relativePath) => {
   }
 
   const content = await fs.readFile(targetPath, 'utf8');
+  const normalizedPath = normalizeRelativePath(relativePath);
+  persistentState.lastOpenFile = normalizedPath;
+  await savePersistentState();
   return {
-    path: normalizeRelativePath(relativePath),
+    path: normalizedPath,
     content,
   };
 });
@@ -175,15 +211,53 @@ ipcMain.handle('semantic:dart-targets', async (_event, rawFocus) => {
   };
 });
 
+ipcMain.handle('app:get-state', () => ({
+  lastProjectRoot: persistentState.lastProjectRoot,
+  lastOpenFile: persistentState.lastOpenFile,
+  voice: { ...persistentState.voice },
+  hasOpenAiKey: runtimeOpenAiKey.length > 0,
+  nativeTts: windowsTts.isSupported(),
+}));
+
+ipcMain.handle('app:update-voice-state', async (_event, rawVoiceState) => {
+  persistentState.voice = validateVoiceState(rawVoiceState);
+  await savePersistentState();
+  return { ...persistentState.voice };
+});
+
+ipcMain.handle('voice:list', async () => windowsTts.listVoices());
+
+ipcMain.handle('voice:synthesize', async (_event, rawRequest) => {
+  const request = rawRequest && typeof rawRequest === 'object' ? rawRequest : {};
+  return windowsTts.synthesize({
+    text: request.text,
+    voiceId: request.voiceId,
+    rate: request.rate,
+  });
+});
+
 ipcMain.handle('ai:has-key', () => runtimeOpenAiKey.length > 0);
 
-ipcMain.handle('ai:set-key', (_event, rawApiKey) => {
+ipcMain.handle('ai:set-key', async (_event, rawApiKey) => {
   const apiKey = typeof rawApiKey === 'string' ? rawApiKey.trim() : '';
   if (apiKey.length < 8) {
     throw new Error('OpenAI API Key 无效。');
   }
 
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows 安全存储暂不可用，API Key 没有写入磁盘。');
+  }
+
   runtimeOpenAiKey = apiKey;
+  persistentState.encryptedOpenAiKey = safeStorage.encryptString(apiKey).toString('base64');
+  await savePersistentState();
+  return true;
+});
+
+ipcMain.handle('ai:clear-key', async () => {
+  runtimeOpenAiKey = process.env.OPENAI_API_KEY?.trim() || '';
+  persistentState.encryptedOpenAiKey = '';
+  await savePersistentState();
   return true;
 });
 
@@ -878,6 +952,76 @@ function findMatchesInFile(relativePath, content, lowerQuery, maximumMatches) {
   return results;
 }
 
+async function loadProjectRoot(rootPath) {
+  const files = await collectProjectFiles(rootPath);
+  dartLspClient?.dispose();
+  dartLspClient = null;
+  currentProjectRoot = rootPath;
+  currentProjectFiles = files;
+
+  return {
+    rootPath,
+    projectName: path.basename(rootPath),
+    files,
+  };
+}
+
+function validateVoiceState(value) {
+  const input = value && typeof value === 'object' ? value : {};
+  const rate = Number(input.rate);
+  return {
+    enabled: input.enabled !== false,
+    language: typeof input.language === 'string' && input.language.trim()
+      ? input.language.trim()
+      : 'zh-CN',
+    voiceId: typeof input.voiceId === 'string' ? input.voiceId : '',
+    rate: Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1,
+  };
+}
+
+function stateFilePath() {
+  return path.join(app.getPath('userData'), 'ai-code-tutor', 'state.json');
+}
+
+async function loadPersistentState() {
+  persistentState = structuredClone(DEFAULT_APP_STATE);
+  try {
+    const raw = await fs.readFile(stateFilePath(), 'utf8');
+    const decoded = JSON.parse(raw);
+    if (decoded && typeof decoded === 'object') {
+      persistentState = {
+        ...persistentState,
+        ...decoded,
+        voice: validateVoiceState(decoded.voice),
+      };
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to load AI Code Tutor state:', error);
+    }
+  }
+
+  if (!runtimeOpenAiKey && persistentState.encryptedOpenAiKey) {
+    try {
+      if (safeStorage.isEncryptionAvailable()) {
+        runtimeOpenAiKey = safeStorage.decryptString(
+          Buffer.from(persistentState.encryptedOpenAiKey, 'base64'),
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to decrypt stored OpenAI API Key:', error);
+      persistentState.encryptedOpenAiKey = '';
+      await savePersistentState();
+    }
+  }
+}
+
+async function savePersistentState() {
+  const filePath = stateFilePath();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(persistentState, null, 2), 'utf8');
+}
+
 async function collectProjectFiles(rootPath) {
   const files = [];
 
@@ -953,7 +1097,8 @@ function normalizeRelativePath(value) {
   return value.split(path.sep).join('/');
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadPersistentState();
   createWindow();
 
   app.on('activate', () => {
