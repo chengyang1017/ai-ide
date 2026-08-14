@@ -12,6 +12,12 @@ declare global {
         path: string;
         content: string;
       }>;
+      searchProject(query: string): Promise<Array<{
+        path: string;
+        line: number;
+        column: number;
+        preview: string;
+      }>>;
     };
   }
 }

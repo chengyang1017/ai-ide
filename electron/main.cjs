@@ -27,6 +27,7 @@ const MAX_PROJECT_FILES = 5000;
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 
 let currentProjectRoot = null;
+let currentProjectFiles = [];
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -64,6 +65,7 @@ ipcMain.handle('project:open', async () => {
   const rootPath = path.resolve(result.filePaths[0]);
   const files = await collectProjectFiles(rootPath);
   currentProjectRoot = rootPath;
+  currentProjectFiles = files;
 
   return {
     rootPath,
@@ -98,6 +100,87 @@ ipcMain.handle('project:read-file', async (_event, relativePath) => {
     content,
   };
 });
+
+
+ipcMain.handle('project:search', async (_event, rawQuery) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const query = typeof rawQuery === 'string' ? rawQuery.trim() : '';
+  if (query.length < 2 || query.length > 80) {
+    throw new Error('搜索词长度需要在 2 到 80 个字符之间。');
+  }
+
+  const matches = [];
+  const lowerQuery = query.toLowerCase();
+  const MAX_MATCHES = 40;
+  const BATCH_SIZE = 20;
+
+  for (let offset = 0; offset < currentProjectFiles.length; offset += BATCH_SIZE) {
+    if (matches.length >= MAX_MATCHES) {
+      break;
+    }
+
+    const batch = currentProjectFiles.slice(offset, offset + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(async (relativePath) => {
+      try {
+        const absolutePath = resolveInsideProject(currentProjectRoot, relativePath);
+        const content = await fs.readFile(absolutePath, 'utf8');
+        return findMatchesInFile(relativePath, content, lowerQuery, MAX_MATCHES);
+      } catch {
+        return [];
+      }
+    }));
+
+    for (const result of batchResults) {
+      for (const match of result) {
+        matches.push(match);
+        if (matches.length >= MAX_MATCHES) {
+          break;
+        }
+      }
+      if (matches.length >= MAX_MATCHES) {
+        break;
+      }
+    }
+  }
+
+  return matches;
+});
+
+function findMatchesInFile(relativePath, content, lowerQuery, maximumMatches) {
+  const results = [];
+  const lines = content.split(/\r?\n/);
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const lowerLine = line.toLowerCase();
+    let fromIndex = 0;
+
+    while (results.length < maximumMatches) {
+      const matchIndex = lowerLine.indexOf(lowerQuery, fromIndex);
+      if (matchIndex < 0) {
+        break;
+      }
+
+      results.push({
+        path: normalizeRelativePath(relativePath),
+        line: lineIndex + 1,
+        column: matchIndex + 1,
+        preview: line.trim(),
+      });
+
+      fromIndex = matchIndex + Math.max(1, lowerQuery.length);
+    }
+
+    if (results.length >= maximumMatches) {
+      break;
+    }
+  }
+
+  return results;
+}
 
 async function collectProjectFiles(rootPath) {
   const files = [];

@@ -117,6 +117,42 @@ export class EditorController {
     });
   }
 
+
+  getNavigationSeed(): { query: string; line: number; column: number } | null {
+    const model = this.editor.getModel();
+    const position = this.editor.getPosition();
+    if (!model || !position) {
+      return null;
+    }
+
+    const selection = this.editor.getSelection();
+    if (selection && !selection.isEmpty()) {
+      const selected = model.getValueInRange(selection).trim();
+      if (
+        selected.length >= 2
+        && selected.length <= 80
+        && /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(selected)
+      ) {
+        return {
+          query: selected,
+          line: position.lineNumber,
+          column: position.column,
+        };
+      }
+    }
+
+    const word = model.getWordAtPosition(position);
+    if (!word || word.word.length < 2) {
+      return null;
+    }
+
+    return {
+      query: word.word,
+      line: position.lineNumber,
+      column: position.column,
+    };
+  }
+
   onViewportChanged(listener: () => void): () => void {
     const scroll = this.editor.onDidScrollChange(listener);
     const layout = this.editor.onDidLayoutChange(listener);

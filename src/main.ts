@@ -2,6 +2,7 @@ import './styles.css';
 import { CharacterController } from './character/character_controller';
 import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
+import { buildRelatedCodeMoves } from './project/project_navigator';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -15,13 +16,14 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.2 · 真实项目读取</small>
+          <small>Alpha 0.3 · 项目级代码导航</small>
         </div>
       </div>
       <div class="titlebar-actions">
         <span id="tutor-status" class="tutor-status">等待打开项目</span>
         <button id="open-project" class="primary-button">📂 打开项目</button>
         <button id="jump-to-cursor">🤖 老师跳到光标</button>
+        <button id="find-related" disabled>🧭 老师找相关代码</button>
       </div>
     </header>
 
@@ -32,8 +34,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.2</strong>
-          <p>现在可以直接打开电脑里的真实项目。先验证文件树、真实源码和角色坐标能够连起来。</p>
+          <strong>Alpha 0.3</strong>
+          <p>把光标放在类名、方法名或变量名上，点击“老师找相关代码”。角色会在真实项目中搜索同名位置并跨文件跳过去。</p>
         </div>
       </aside>
 
@@ -84,6 +86,7 @@ const projectRoot = requireElement('project-root');
 const workspaceBadge = requireElement('workspace-badge');
 const openProjectButton = requireButton('open-project');
 const jumpToCursorButton = requireButton('jump-to-cursor');
+const findRelatedButton = requireButton('find-related');
 const positionStatus = requireElement('position-status');
 
 const editorController = new EditorController(editorElement, demoFiles);
@@ -92,11 +95,19 @@ const characterController = new CharacterController(
   characterElement,
   bubbleElement,
   tutorStatus,
+  async (path) => {
+    if (!isRealProject) {
+      throw new Error('请先打开真实项目。');
+    }
+    await openRealProjectFile(path, false);
+  },
 );
 
 let projectFiles: string[] = demoFiles.map((file) => file.path);
 let isRealProject = false;
 let projectLoadSequence = 0;
+let relatedTourSequence = 0;
+let relatedTourRunning = false;
 
 renderFileTree(projectFiles);
 updateActiveFile();
@@ -106,6 +117,7 @@ editorController.editor.onDidChangeCursorPosition((event) => {
 });
 
 openProjectButton.addEventListener('click', async () => {
+  stopRelatedTour('准备打开项目');
   const sequence = ++projectLoadSequence;
   openProjectButton.disabled = true;
   tutorStatus.textContent = '正在读取项目目录…';
@@ -122,6 +134,7 @@ openProjectButton.addEventListener('click', async () => {
     projectName.textContent = `▾ ${result.projectName}`;
     projectRoot.textContent = result.rootPath;
     workspaceBadge.textContent = '真实项目';
+    findRelatedButton.disabled = false;
     renderFileTree(projectFiles);
     characterController.clear('项目已打开');
 
@@ -158,6 +171,92 @@ jumpToCursorButton.addEventListener('click', async () => {
   });
 });
 
+
+
+findRelatedButton.addEventListener('click', async () => {
+  if (relatedTourRunning) {
+    stopRelatedTour('已停止项目导航');
+    return;
+  }
+
+  if (!isRealProject) {
+    tutorStatus.textContent = '请先打开真实项目';
+    return;
+  }
+
+  const seed = editorController.getNavigationSeed();
+  if (!seed) {
+    tutorStatus.textContent = '请把光标放在类名、方法名或变量名上，或先选中一个标识符';
+    return;
+  }
+
+  const sequence = ++relatedTourSequence;
+  relatedTourRunning = true;
+  findRelatedButton.textContent = '■ 停止寻找';
+  tutorStatus.textContent = `正在整个项目搜索 “${seed.query}”…`;
+
+  try {
+    const matches = await window.tutorIde.searchProject(seed.query);
+    if (sequence !== relatedTourSequence) {
+      return;
+    }
+
+    const moves = buildRelatedCodeMoves({
+      query: seed.query,
+      currentPath: editorController.path,
+      currentLine: seed.line,
+    }, matches);
+
+    if (moves.length === 0) {
+      await characterController.moveTo({
+        filePath: editorController.path,
+        line: seed.line,
+        column: seed.column,
+        action: 'think',
+        speech: `我搜索了整个项目，目前没有找到 “${seed.query}” 的其他位置。`,
+      });
+      return;
+    }
+
+    for (let index = 0; index < moves.length; index += 1) {
+      if (sequence !== relatedTourSequence) {
+        return;
+      }
+
+      const move = moves[index];
+      if (!move) {
+        continue;
+      }
+
+      tutorStatus.textContent = `项目导航 ${index + 1} / ${moves.length} · ${move.filePath}:${move.line}`;
+      await characterController.moveTo(move);
+      updateActiveFile();
+      updateFileTreeSelection();
+      await delay(move.waitMs ?? 1500);
+    }
+
+    if (sequence === relatedTourSequence) {
+      tutorStatus.textContent = `✓ 已走过 “${seed.query}” 的 ${moves.length} 个相关位置`;
+    }
+  } catch (error) {
+    if (sequence === relatedTourSequence) {
+      tutorStatus.textContent = errorMessage(error);
+    }
+  } finally {
+    if (sequence === relatedTourSequence) {
+      relatedTourRunning = false;
+      findRelatedButton.textContent = '🧭 老师找相关代码';
+    }
+  }
+});
+
+function stopRelatedTour(message: string): void {
+  relatedTourSequence += 1;
+  relatedTourRunning = false;
+  findRelatedButton.textContent = '🧭 老师找相关代码';
+  tutorStatus.textContent = message;
+}
+
 function renderFileTree(paths: string[]): void {
   fileTree.replaceChildren();
 
@@ -192,6 +291,7 @@ function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: numbe
     button.style.paddingLeft = `${22 + depth * 14}px`;
     button.innerHTML = `<span class="file-icon">${fileLabel(node.path)}</span><span>${escapeText(node.name)}</span>`;
     button.addEventListener('click', async () => {
+      stopRelatedTour('已手动切换文件');
       characterController.clear('已切换文件');
 
       try {
@@ -408,6 +508,10 @@ function escapeText(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 window.addEventListener('beforeunload', () => {

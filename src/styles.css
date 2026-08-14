@@ -32,6 +32,11 @@ button:hover {
   background: #2a2f39;
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .ide-shell {
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr) 24px;

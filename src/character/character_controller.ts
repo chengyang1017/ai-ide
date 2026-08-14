@@ -1,4 +1,4 @@
-import type { TutorMove } from '../demo/demo_project';
+import type { TutorMove } from '../core/tutor_move';
 import type { EditorController } from '../editor/editor_controller';
 
 export class CharacterController {
@@ -12,6 +12,7 @@ export class CharacterController {
     character: HTMLElement,
     bubble: HTMLElement,
     status: HTMLElement,
+    private readonly loadFile?: (path: string) => Promise<void>,
   ) {
     this.character = character;
     this.bubble = bubble;
@@ -26,14 +27,19 @@ export class CharacterController {
     const changedFile = move.filePath !== this.editorController.path;
 
     if (changedFile) {
-      if (!this.editorController.hasFile(move.filePath)) {
-        throw new Error(`角色还没有加载目标文件：${move.filePath}`);
-      }
-
       this.setStatus('跨文件跳跃');
       this.character.classList.add('portal-out');
       await delay(220);
-      this.editorController.openFile(move.filePath);
+
+      if (!this.editorController.hasFile(move.filePath)) {
+        if (!this.loadFile) {
+          throw new Error(`角色还没有加载目标文件：${move.filePath}`);
+        }
+        await this.loadFile(move.filePath);
+      } else {
+        this.editorController.openFile(move.filePath);
+      }
+
       this.character.classList.remove('portal-out');
       this.character.classList.add('portal-in');
       window.setTimeout(() => this.character.classList.remove('portal-in'), 420);

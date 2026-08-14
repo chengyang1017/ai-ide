@@ -1,17 +1,11 @@
+import type { TutorMove } from '../core/tutor_move';
+
 export interface DemoFile {
   path: string;
   language: string;
   content: string;
 }
 
-export interface TutorMove {
-  filePath: string;
-  line: number;
-  column: number;
-  speech: string;
-  action: 'jump' | 'point' | 'think';
-  waitMs?: number;
-}
 
 export const demoFiles: DemoFile[] = [
   {
