@@ -1,4 +1,5 @@
 import type { DemoFile } from '../demo/demo_project';
+import type { TutorFocus } from '../core/ai_tutor_plan';
 import { monaco } from './monaco_setup';
 
 export interface EditorFile {
@@ -150,6 +151,57 @@ export class EditorController {
       query: word.word,
       line: position.lineNumber,
       column: position.column,
+    };
+  }
+
+  getTutorFocus(): TutorFocus | null {
+    const model = this.editor.getModel();
+    const position = this.editor.getPosition();
+    if (!model || !position) {
+      return null;
+    }
+
+    const selection = this.editor.getSelection();
+    let selectedText = '';
+    let line = position.lineNumber;
+    let column = position.column;
+    let query: string | null = null;
+
+    if (selection && !selection.isEmpty()) {
+      selectedText = model.getValueInRange(selection).trim();
+      line = selection.startLineNumber;
+      column = selection.startColumn;
+
+      if (
+        selectedText.length >= 2
+        && selectedText.length <= 80
+        && /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(selectedText)
+      ) {
+        query = selectedText;
+      }
+    }
+
+    if (!query) {
+      const word = model.getWordAtPosition(position);
+      if (word?.word && word.word.length >= 2 && word.word.length <= 80) {
+        query = word.word;
+      }
+    }
+
+    if (selectedText.length === 0) {
+      selectedText = model.getLineContent(position.lineNumber).trim();
+    }
+
+    if (selectedText.length === 0 && !query) {
+      return null;
+    }
+
+    return {
+      filePath: this.currentPath,
+      line,
+      column,
+      selectedText: selectedText.slice(0, 6000),
+      query,
     };
   }
 

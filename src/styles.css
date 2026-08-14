@@ -484,3 +484,103 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Alpha 0.4：AI 项目教学路线入口。 */
+.ai-button {
+  border-color: #2f9f7f;
+  background: #173c34;
+  color: #d9fff3;
+}
+
+.ai-button:hover {
+  background: #1d4b40;
+}
+
+
+/* Alpha 0.4 hotfix：Electron 内使用应用内 API Key 对话框，不依赖 window.prompt。 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(5 7 11 / 68%);
+  backdrop-filter: blur(4px);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.api-key-dialog {
+  width: min(520px, 100%);
+  padding: 18px;
+  border: 1px solid #343945;
+  border-radius: 14px;
+  background: #171a20;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.api-key-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.api-key-dialog-header strong {
+  font-size: 15px;
+}
+
+.api-key-dialog-header p {
+  margin: 5px 0 0;
+  color: #8e96a3;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.icon-button {
+  min-width: 32px;
+  padding: 4px 8px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.api-key-field {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  color: #b8bec8;
+  font-size: 12px;
+}
+
+.api-key-field input {
+  width: 100%;
+  border: 1px solid #3a404c;
+  border-radius: 8px;
+  outline: none;
+  background: #101217;
+  color: #edf0f5;
+  padding: 10px 11px;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.api-key-field input:focus {
+  border-color: #6656db;
+  box-shadow: 0 0 0 2px rgb(102 86 219 / 22%);
+}
+
+.api-key-error {
+  min-height: 18px;
+  margin-top: 7px;
+  color: #ff8d8d;
+  font-size: 12px;
+}
+
+.api-key-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

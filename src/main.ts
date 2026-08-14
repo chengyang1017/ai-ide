@@ -16,7 +16,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.3 · 项目级代码导航</small>
+          <small>Alpha 0.4 · AI 项目教学路线</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -24,6 +24,8 @@ app.innerHTML = `
         <button id="open-project" class="primary-button">📂 打开项目</button>
         <button id="jump-to-cursor">🤖 老师跳到光标</button>
         <button id="find-related" disabled>🧭 老师找相关代码</button>
+        <button id="set-api-key">🔑 API Key</button>
+        <button id="ai-tour" class="ai-button" disabled>✨ AI 老师理解项目</button>
       </div>
     </header>
 
@@ -34,8 +36,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.3</strong>
-          <p>把光标放在类名、方法名或变量名上，点击“老师找相关代码”。角色会在真实项目中搜索同名位置并跨文件跳过去。</p>
+          <strong>Alpha 0.4</strong>
+          <p>选中代码或把光标放在标识符上，点击“AI 老师理解项目”。IDE 会先检索真实项目候选，再让 AI 挑出真正值得走的教学路线。</p>
         </div>
       </aside>
 
@@ -73,6 +75,36 @@ app.innerHTML = `
       <span id="position-status">Ln 1, Col 1</span>
     </footer>
   </div>
+
+  <div id="api-key-modal" class="modal-backdrop" hidden>
+    <section class="api-key-dialog" role="dialog" aria-modal="true" aria-labelledby="api-key-title">
+      <div class="api-key-dialog-header">
+        <div>
+          <strong id="api-key-title">OpenAI API Key</strong>
+          <p>只保存在当前 Electron 进程内存中，关闭 IDE 后自动清除。</p>
+        </div>
+        <button id="api-key-close" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <label class="api-key-field">
+        <span>API Key</span>
+        <input
+          id="api-key-input"
+          type="password"
+          placeholder="sk-..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </label>
+
+      <div id="api-key-error" class="api-key-error" aria-live="polite"></div>
+
+      <div class="api-key-dialog-actions">
+        <button id="api-key-cancel" type="button">取消</button>
+        <button id="api-key-save" class="primary-button" type="button">保存到当前会话</button>
+      </div>
+    </section>
+  </div>
 `;
 
 const editorElement = requireElement('editor');
@@ -87,7 +119,15 @@ const workspaceBadge = requireElement('workspace-badge');
 const openProjectButton = requireButton('open-project');
 const jumpToCursorButton = requireButton('jump-to-cursor');
 const findRelatedButton = requireButton('find-related');
+const setApiKeyButton = requireButton('set-api-key');
+const aiTourButton = requireButton('ai-tour');
 const positionStatus = requireElement('position-status');
+const apiKeyModal = requireElement('api-key-modal');
+const apiKeyInput = requireInput('api-key-input');
+const apiKeyError = requireElement('api-key-error');
+const apiKeyCloseButton = requireButton('api-key-close');
+const apiKeyCancelButton = requireButton('api-key-cancel');
+const apiKeySaveButton = requireButton('api-key-save');
 
 const editorController = new EditorController(editorElement, demoFiles);
 const characterController = new CharacterController(
@@ -108,6 +148,8 @@ let isRealProject = false;
 let projectLoadSequence = 0;
 let relatedTourSequence = 0;
 let relatedTourRunning = false;
+let aiTourSequence = 0;
+let aiTourRunning = false;
 
 renderFileTree(projectFiles);
 updateActiveFile();
@@ -118,6 +160,7 @@ editorController.editor.onDidChangeCursorPosition((event) => {
 
 openProjectButton.addEventListener('click', async () => {
   stopRelatedTour('准备打开项目');
+  stopAiTour('准备打开项目');
   const sequence = ++projectLoadSequence;
   openProjectButton.disabled = true;
   tutorStatus.textContent = '正在读取项目目录…';
@@ -135,6 +178,7 @@ openProjectButton.addEventListener('click', async () => {
     projectRoot.textContent = result.rootPath;
     workspaceBadge.textContent = '真实项目';
     findRelatedButton.disabled = false;
+    aiTourButton.disabled = false;
     renderFileTree(projectFiles);
     characterController.clear('项目已打开');
 
@@ -155,6 +199,8 @@ openProjectButton.addEventListener('click', async () => {
 });
 
 jumpToCursorButton.addEventListener('click', async () => {
+  stopRelatedTour('已切换到手动定位');
+  stopAiTour('已切换到手动定位');
   const position = editorController.editor.getPosition();
   if (!position) {
     return;
@@ -178,6 +224,8 @@ findRelatedButton.addEventListener('click', async () => {
     stopRelatedTour('已停止项目导航');
     return;
   }
+
+  stopAiTour('已切换到项目文本导航');
 
   if (!isRealProject) {
     tutorStatus.textContent = '请先打开真实项目';
@@ -250,11 +298,167 @@ findRelatedButton.addEventListener('click', async () => {
   }
 });
 
+setApiKeyButton.addEventListener('click', () => {
+  openApiKeyDialog();
+});
+
+apiKeyCloseButton.addEventListener('click', closeApiKeyDialog);
+apiKeyCancelButton.addEventListener('click', closeApiKeyDialog);
+apiKeySaveButton.addEventListener('click', () => {
+  void saveApiKeyFromDialog();
+});
+
+apiKeyModal.addEventListener('click', (event) => {
+  if (event.target === apiKeyModal) {
+    closeApiKeyDialog();
+  }
+});
+
+apiKeyInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    void saveApiKeyFromDialog();
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    closeApiKeyDialog();
+  }
+});
+
+aiTourButton.addEventListener('click', async () => {
+  if (aiTourRunning) {
+    stopAiTour('已停止 AI 教学路线');
+    return;
+  }
+
+  if (!isRealProject) {
+    tutorStatus.textContent = '请先打开真实项目';
+    return;
+  }
+
+  const focus = editorController.getTutorFocus();
+  if (!focus) {
+    tutorStatus.textContent = '请先选中代码，或把光标放在一个类名、方法名或变量名上';
+    return;
+  }
+
+  if (!(await ensureOpenAiKey())) {
+    tutorStatus.textContent = '未设置 OpenAI API Key';
+    return;
+  }
+
+  stopRelatedTour('已切换到 AI 教学路线');
+  const sequence = ++aiTourSequence;
+  aiTourRunning = true;
+  aiTourButton.textContent = '■ 停止 AI 老师';
+  tutorStatus.textContent = focus.query
+    ? `AI 正在理解 “${focus.query}” 在项目里的关系…`
+    : 'AI 正在理解当前选中的代码…';
+
+  try {
+    const plan = await window.tutorIde.planTutorTour(focus);
+    if (sequence !== aiTourSequence) {
+      return;
+    }
+
+    if (plan.moves.length === 0) {
+      tutorStatus.textContent = 'AI 没有生成可执行的教学路线';
+      return;
+    }
+
+    for (let index = 0; index < plan.moves.length; index += 1) {
+      if (sequence !== aiTourSequence) {
+        return;
+      }
+
+      const move = plan.moves[index];
+      if (!move) {
+        continue;
+      }
+
+      tutorStatus.textContent = `AI 教学 ${index + 1} / ${plan.moves.length} · ${move.filePath}:${move.line}`;
+      await characterController.moveTo(move);
+      updateActiveFile();
+      updateFileTreeSelection();
+      await delay(move.waitMs ?? 1900);
+    }
+
+    if (sequence === aiTourSequence) {
+      tutorStatus.textContent = `✓ ${plan.summary} · ${plan.model} · 候选 ${plan.candidateCount} 个`;
+    }
+  } catch (error) {
+    if (sequence === aiTourSequence) {
+      tutorStatus.textContent = errorMessage(error);
+    }
+  } finally {
+    if (sequence === aiTourSequence) {
+      aiTourRunning = false;
+      aiTourButton.textContent = '✨ AI 老师理解项目';
+    }
+  }
+});
+
 function stopRelatedTour(message: string): void {
   relatedTourSequence += 1;
   relatedTourRunning = false;
   findRelatedButton.textContent = '🧭 老师找相关代码';
   tutorStatus.textContent = message;
+}
+
+function stopAiTour(message: string): void {
+  aiTourSequence += 1;
+  aiTourRunning = false;
+  aiTourButton.textContent = '✨ AI 老师理解项目';
+  tutorStatus.textContent = message;
+}
+
+async function ensureOpenAiKey(): Promise<boolean> {
+  if (await window.tutorIde.hasOpenAiKey()) {
+    return true;
+  }
+
+  openApiKeyDialog();
+  return false;
+}
+
+function openApiKeyDialog(): void {
+  apiKeyError.textContent = '';
+  apiKeyInput.value = '';
+  apiKeyModal.hidden = false;
+  window.setTimeout(() => apiKeyInput.focus(), 0);
+}
+
+function closeApiKeyDialog(): void {
+  apiKeyModal.hidden = true;
+  apiKeyInput.value = '';
+  apiKeyError.textContent = '';
+  apiKeySaveButton.disabled = false;
+  apiKeySaveButton.textContent = '保存到当前会话';
+}
+
+async function saveApiKeyFromDialog(): Promise<void> {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    apiKeyError.textContent = '请输入 OpenAI API Key。';
+    apiKeyInput.focus();
+    return;
+  }
+
+  apiKeyError.textContent = '';
+  apiKeySaveButton.disabled = true;
+  apiKeySaveButton.textContent = '保存中…';
+
+  try {
+    await window.tutorIde.setOpenAiKey(apiKey);
+    closeApiKeyDialog();
+    tutorStatus.textContent = '✓ OpenAI API Key 已放入当前进程内存';
+  } catch (error) {
+    apiKeyError.textContent = errorMessage(error);
+    apiKeySaveButton.disabled = false;
+    apiKeySaveButton.textContent = '保存到当前会话';
+    apiKeyInput.focus();
+  }
 }
 
 function renderFileTree(paths: string[]): void {
@@ -292,6 +496,7 @@ function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: numbe
     button.innerHTML = `<span class="file-icon">${fileLabel(node.path)}</span><span>${escapeText(node.name)}</span>`;
     button.addEventListener('click', async () => {
       stopRelatedTour('已手动切换文件');
+      stopAiTour('已手动切换文件');
       characterController.clear('已切换文件');
 
       try {
@@ -493,6 +698,14 @@ function requireButton(id: string): HTMLButtonElement {
   const element = document.getElementById(id);
   if (!(element instanceof HTMLButtonElement)) {
     throw new Error(`Missing button #${id}`);
+  }
+  return element;
+}
+
+function requireInput(id: string): HTMLInputElement {
+  const element = document.getElementById(id);
+  if (!(element instanceof HTMLInputElement)) {
+    throw new Error(`Missing input #${id}`);
   }
   return element;
 }

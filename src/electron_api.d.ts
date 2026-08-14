@@ -1,3 +1,5 @@
+import type { AiTutorPlan, TutorFocus } from './core/ai_tutor_plan';
+
 export {};
 
 declare global {
@@ -18,6 +20,9 @@ declare global {
         column: number;
         preview: string;
       }>>;
+      hasOpenAiKey(): Promise<boolean>;
+      setOpenAiKey(apiKey: string): Promise<boolean>;
+      planTutorTour(focus: TutorFocus): Promise<AiTutorPlan>;
     };
   }
 }

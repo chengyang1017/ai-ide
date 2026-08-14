@@ -1,20 +1,21 @@
-# AI Code Tutor IDE — Alpha 0.3
+# AI Code Tutor IDE — Alpha 0.4
 
 一个独立桌面代码编辑器原型。核心目标不是做“右侧 AI 聊天框”，而是让动画 AI 导师直接生活在代码区域里，并最终能够理解整个项目后自己决定下一跳。
 
-## Alpha 0.3
+## Alpha 0.4
 
-这一版第一次建立“项目级 Tutor 导航协议”：
+这一版第一次让 AI 真正参与“角色应该去哪里讲”：
 
-1. 保留 Alpha 0.2 的真实项目文件树与 Monaco 编辑器
-2. 新增项目全文检索 IPC：Renderer 不直接读取硬盘
-3. 把 `TutorMove` 从 demo 代码抽离到 `src/core/tutor_move.ts`
-4. `TutorMove` 现在成为角色统一动作协议：`filePath + line + column + action + speech`
-5. 光标放在类名、方法名或变量名上，可以点击 `🧭 老师找相关代码`
-6. IDE 会在整个真实项目里查找这个标识符的其他出现位置
-7. 角色按搜索结果自动跨文件跳跃，并同步高亮真实代码
-8. 尚未打开过的目标文件会按需读取，不需要提前把整个项目全部加载进 Monaco
-9. 再次点击“停止寻找”可以中断当前项目导航
+1. 保留 Alpha 0.3 的真实项目文件树、Monaco 编辑器和跨文件角色移动
+2. 新增 `✨ AI 老师理解项目`
+3. 用户可以选中代码，或把光标放在类名 / 方法名 / 变量名上
+4. IDE 先读取当前代码，再在真实项目中检索相关候选位置
+5. 每个候选都会附带真实文件路径、行号和附近代码片段
+6. OpenAI 只负责从这些真实候选中挑选 1～6 个值得学习的位置并排序
+7. AI 返回 `candidateId + action + speech`，不能自行编造文件和行号
+8. Electron Main 把 AI 结果映射回安全的 `TutorMove[]`
+9. 角色随后自动跨文件跳转、高亮并讲解
+10. API Key 只保存在当前 Electron 进程内；关闭 IDE 后即清除，也可以通过 `OPENAI_API_KEY` 环境变量提供
 
 ## 运行
 
@@ -28,61 +29,87 @@ npm run dev
 
 1. `📂 打开项目`
 2. 打开一个真实源码文件
-3. 把光标放在一个有多处引用的类名 / 方法名 / 变量名上，例如 `MessageBubble`
-4. 点击 `🧭 老师找相关代码`
-5. 观察角色在同文件和不同文件之间移动
+3. 选中一段代码，或把光标放在一个标识符上，例如 `MessageBubble`
+4. 点击 `✨ AI 老师理解项目`
+5. 第一次使用会提示输入 OpenAI API Key
+6. 观察角色按照 AI 规划的路线在同文件 / 跨文件之间移动
 
-也可以先选中一个完整标识符，再点击按钮。
-
-## 当前调用链
+原来的：
 
 ```text
-光标 / 选区
+🧭 老师找相关代码
+```
+
+仍然保留，用来对比“机械全文搜索”和“AI 挑选教学路线”的差异。
+
+## Alpha 0.4 调用链
+
+```text
+选区 / 光标
     ↓
-EditorController.getNavigationSeed()
+EditorController.getTutorFocus()
     ↓
 Electron IPC
     ↓
-项目全文检索
+当前代码 + 项目全文检索
     ↓
-ProjectSearchMatch[]
+真实候选位置 + 附近代码片段
     ↓
-ProjectNavigator
+OpenAI Responses API
+    ↓
+Structured Outputs
+    ↓
+candidateId + action + speech
+    ↓
+Electron Main 映射到真实位置
     ↓
 TutorMove[]
     ↓
 CharacterController
     ↓
-打开目标文件 + 高亮 + 角色跳跃 + 气泡
+打开文件 + 滚动 + 高亮 + 角色跳跃 + 气泡讲解
 ```
 
-## 为什么这一版还没直接接 AI
+## 为什么 AI 不能直接返回任意文件和行号
 
-Alpha 0.3 先把“AI 将来需要控制什么”固定下来。
+为了避免模型“说得像真的一样”却跳到不存在的位置，Alpha 0.4 不允许 AI 自由填写：
 
-未来 AI 不需要控制 Electron、Monaco 或动画 DOM，它只需要产生类似：
-
-```ts
-{
-  filePath: 'lib/features/chat/chat_service.dart',
-  line: 86,
-  column: 5,
-  action: 'point',
-  speech: 'MessageBubble 的数据最终来自这里。'
-}
+```text
+filePath
+line
+column
 ```
 
-IDE 自己负责打开文件、滚动、高亮和让角色跳过去。
+IDE 先生成：
 
-当前的全文检索只是第一个 `TutorMove` 来源。后面可以继续增加：
+```text
+current
+candidate-1
+candidate-2
+...
+```
 
-- AI 项目理解
-- LSP definition / references
-- import / symbol 图
-- Git diff
-- diagnostics
+每个 candidate 都已经绑定一个真实存在的代码位置。AI 只能选择 candidate ID。
 
-这些来源最终都复用同一个角色移动协议。
+因此：
+
+```text
+AI 负责理解和排序
+IDE 负责事实和执行
+```
+
+## 当前限制
+
+Alpha 0.4 已经是 AI 项目导航，但还不是完整的“项目语义理解”。
+
+当前候选位置仍主要来自全文检索，所以：
+
+- 能跨整个项目找同名代码
+- AI 能过滤明显没用的同名位置
+- AI 能基于附近代码判断哪些位置更值得讲
+- 但还不能保证精确识别“定义 / 真正调用 / 引用 / override / 实现关系”
+
+真正的语义关系下一步要接 LSP / Language Server。
 
 ## 安全边界
 
@@ -94,24 +121,26 @@ contextIsolation: true
 sandbox: true
 ```
 
-项目读取与搜索均在 Electron Main 中完成，只通过 preload 暴露明确的 IPC API。
+项目文件读取、项目搜索以及 OpenAI API 请求全部在 Electron Main 中完成。Renderer 不直接拥有 Node 文件系统权限，也不会直接持有持久化 API Key。
 
 ## 下一阶段
 
-Alpha 0.4：**让 AI 真正生成 TutorMove 教学路线**。
+Alpha 0.5：**语义级代码导航（LSP / Language Server）**。
 
-目标：
+目标从：
 
 ```text
-选中一段真实代码
-        ↓
-当前文件 + 附近上下文
-        ↓
-项目相关代码检索
-        ↓
-AI 理解功能链
-        ↓
-TutorMove[]
-        ↓
-角色自己决定跨文件跳到哪里讲
+“项目里哪里出现了 MessageBubble”
 ```
+
+升级到：
+
+```text
+MessageBubble 定义在哪里
+谁真正实例化 / 调用了它
+这个方法有哪些 references
+import 来自哪里
+实现 / override 在哪里
+```
+
+然后把这些语义结果继续交给 AI，最终生成更准确的 TutorMove 教学链。
