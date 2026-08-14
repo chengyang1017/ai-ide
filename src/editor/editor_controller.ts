@@ -1,6 +1,12 @@
 import type { DemoFile } from '../demo/demo_project';
 import { monaco } from './monaco_setup';
 
+export interface EditorFile {
+  path: string;
+  language: string;
+  content: string;
+}
+
 export class EditorController {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
 
@@ -10,9 +16,7 @@ export class EditorController {
 
   constructor(container: HTMLElement, files: DemoFile[]) {
     for (const file of files) {
-      const uri = monaco.Uri.parse(`file:///${file.path}`);
-      const model = monaco.editor.createModel(file.content, file.language, uri);
-      this.models.set(file.path, model);
+      this.registerModel(file);
     }
 
     const first = files[0];
@@ -43,15 +47,43 @@ export class EditorController {
     return this.currentPath;
   }
 
-  openFile(path: string): void {
-    if (path === this.currentPath) {
-      return;
-    }
+  hasFile(path: string): boolean {
+    return this.models.has(path);
+  }
 
+  openFile(path: string): void {
     const model = this.requireModel(path);
     this.currentPath = path;
     this.editor.setModel(model);
     this.highlightCollection.clear();
+  }
+
+  openFileContent(file: EditorFile): void {
+    let model = this.models.get(file.path);
+
+    if (!model) {
+      model = this.registerModel(file);
+    } else if (model.getValue() !== file.content) {
+      model.setValue(file.content);
+      monaco.editor.setModelLanguage(model, file.language);
+    }
+
+    this.currentPath = file.path;
+    this.editor.setModel(model);
+    this.highlightCollection.clear();
+  }
+
+  replaceWorkspace(file: EditorFile): void {
+    this.highlightCollection.clear();
+
+    for (const model of this.models.values()) {
+      model.dispose();
+    }
+    this.models.clear();
+
+    const model = this.registerModel(file);
+    this.currentPath = file.path;
+    this.editor.setModel(model);
   }
 
   reveal(line: number, column: number): void {
@@ -72,6 +104,10 @@ export class EditorController {
         },
       },
     ]);
+  }
+
+  clearHighlight(): void {
+    this.highlightCollection.clear();
   }
 
   getVisiblePosition(line: number, column: number): { left: number; top: number; height: number } | null {
@@ -97,6 +133,16 @@ export class EditorController {
     for (const model of this.models.values()) {
       model.dispose();
     }
+  }
+
+  private registerModel(file: EditorFile): monaco.editor.ITextModel {
+    const uri = monaco.Uri.parse(`file:///workspace/${file.path}`);
+    const existing = monaco.editor.getModel(uri);
+    existing?.dispose();
+
+    const model = monaco.editor.createModel(file.content, file.language, uri);
+    this.models.set(file.path, model);
+    return model;
   }
 
   private requireModel(path: string): monaco.editor.ITextModel {

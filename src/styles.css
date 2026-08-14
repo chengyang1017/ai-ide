@@ -442,3 +442,40 @@ button:hover {
     display: none;
   }
 }
+
+/* Alpha 0.2：真实项目文件树。 */
+.directory-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  color: #aeb4bf;
+  font-size: 11px;
+  user-select: none;
+}
+
+.directory-arrow {
+  width: 10px;
+  color: #687180;
+  font-size: 10px;
+}
+
+.file-item span:last-child,
+.directory-item span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-empty {
+  padding: 14px;
+  color: #747d8b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+#project-root {
+  max-width: 50vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

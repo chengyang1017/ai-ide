@@ -26,6 +26,10 @@ export class CharacterController {
     const changedFile = move.filePath !== this.editorController.path;
 
     if (changedFile) {
+      if (!this.editorController.hasFile(move.filePath)) {
+        throw new Error(`角色还没有加载目标文件：${move.filePath}`);
+      }
+
       this.setStatus('跨文件跳跃');
       this.character.classList.add('portal-out');
       await delay(220);
@@ -52,6 +56,14 @@ export class CharacterController {
         ? '正在思考'
         : '跳到目标';
     this.setStatus(`${actionLabel} · ${move.filePath}:${move.line}`);
+  }
+
+  clear(message = '等待操作'): void {
+    this.currentMove = null;
+    this.editorController.clearHighlight();
+    this.hideBubble();
+    this.character.classList.add('offscreen');
+    this.setStatus(message);
   }
 
   hideBubble(): void {

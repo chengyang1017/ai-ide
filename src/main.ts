@@ -1,6 +1,6 @@
 import './styles.css';
 import { CharacterController } from './character/character_controller';
-import { demoFiles, demoMoves } from './demo/demo_project';
+import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -15,25 +15,25 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.1 · 独立项目</small>
+          <small>Alpha 0.2 · 真实项目读取</small>
         </div>
       </div>
       <div class="titlebar-actions">
-        <span id="tutor-status" class="tutor-status">等待开始</span>
-        <button id="run-demo" class="primary-button">▶ 让老师开始跳</button>
-        <button id="next-step">下一跳</button>
+        <span id="tutor-status" class="tutor-status">等待打开项目</span>
+        <button id="open-project" class="primary-button">📂 打开项目</button>
+        <button id="jump-to-cursor">🤖 老师跳到光标</button>
       </div>
     </header>
 
     <div class="workspace">
       <aside class="sidebar">
         <div class="sidebar-title">EXPLORER</div>
-        <div class="project-name">▾ ai-code-tutor-demo</div>
+        <div id="project-name" class="project-name">▾ ai-code-tutor-demo</div>
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>当前 Alpha 目标</strong>
-          <p>先验证角色真的可以生活在代码区域里，而不是待在右侧聊天面板。</p>
+          <strong>Alpha 0.2</strong>
+          <p>现在可以直接打开电脑里的真实项目。先验证文件树、真实源码和角色坐标能够连起来。</p>
         </div>
       </aside>
 
@@ -41,7 +41,7 @@ app.innerHTML = `
         <div class="editor-tabbar">
           <span class="editor-tab-dot"></span>
           <span id="active-file">src/app.ts</span>
-          <span class="tab-badge">Monaco</span>
+          <span id="workspace-badge" class="tab-badge">Demo</span>
         </div>
 
         <div id="editor-stage" class="editor-stage">
@@ -66,8 +66,8 @@ app.innerHTML = `
     </div>
 
     <footer class="statusbar">
-      <span>独立 Electron + Monaco</span>
-      <span>角色坐标 ← Monaco.getScrolledVisiblePosition()</span>
+      <span>Electron + Monaco</span>
+      <span id="project-root">尚未打开真实项目</span>
       <span id="position-status">Ln 1, Col 1</span>
     </footer>
   </div>
@@ -79,8 +79,11 @@ const bubbleElement = requireElement('speech-bubble');
 const tutorStatus = requireElement('tutor-status');
 const fileTree = requireElement('file-tree');
 const activeFile = requireElement('active-file');
-const runDemoButton = requireButton('run-demo');
-const nextStepButton = requireButton('next-step');
+const projectName = requireElement('project-name');
+const projectRoot = requireElement('project-root');
+const workspaceBadge = requireElement('workspace-badge');
+const openProjectButton = requireButton('open-project');
+const jumpToCursorButton = requireButton('jump-to-cursor');
 const positionStatus = requireElement('position-status');
 
 const editorController = new EditorController(editorElement, demoFiles);
@@ -91,85 +94,140 @@ const characterController = new CharacterController(
   tutorStatus,
 );
 
-let currentStep = -1;
-let demoRunning = false;
-let demoRunId = 0;
+let projectFiles: string[] = demoFiles.map((file) => file.path);
+let isRealProject = false;
+let projectLoadSequence = 0;
 
-renderFileTree();
+renderFileTree(projectFiles);
 updateActiveFile();
 
 editorController.editor.onDidChangeCursorPosition((event) => {
   positionStatus.textContent = `Ln ${event.position.lineNumber}, Col ${event.position.column}`;
 });
 
-runDemoButton.addEventListener('click', async () => {
-  if (demoRunning) {
-    demoRunId += 1;
-    demoRunning = false;
-    runDemoButton.textContent = '▶ 让老师开始跳';
-    tutorStatus.textContent = '演示已停止';
-    return;
-  }
+openProjectButton.addEventListener('click', async () => {
+  const sequence = ++projectLoadSequence;
+  openProjectButton.disabled = true;
+  tutorStatus.textContent = '正在读取项目目录…';
 
-  demoRunning = true;
-  const runId = ++demoRunId;
-  runDemoButton.textContent = '■ 停止演示';
-
-  for (let index = 0; index < demoMoves.length; index += 1) {
-    if (!demoRunning || runId !== demoRunId) {
-      break;
+  try {
+    const result = await window.tutorIde.openProject();
+    if (!result || sequence !== projectLoadSequence) {
+      tutorStatus.textContent = '已取消打开项目';
+      return;
     }
 
-    currentStep = index;
-    await moveToCurrentStep();
-    await delay(demoMoves[index]?.waitMs ?? 2400);
-  }
+    projectFiles = result.files;
+    isRealProject = true;
+    projectName.textContent = `▾ ${result.projectName}`;
+    projectRoot.textContent = result.rootPath;
+    workspaceBadge.textContent = '真实项目';
+    renderFileTree(projectFiles);
+    characterController.clear('项目已打开');
 
-  if (runId === demoRunId) {
-    demoRunning = false;
-    runDemoButton.textContent = '↻ 再演示一次';
-    tutorStatus.textContent = '✓ 演示完成：已经可以跨文件跳';
+    const firstFile = chooseInitialFile(projectFiles);
+    if (!firstFile) {
+      activeFile.textContent = '没有可读取的代码文件';
+      tutorStatus.textContent = '项目中没有找到支持的文本代码文件';
+      return;
+    }
+
+    await openRealProjectFile(firstFile, true);
+    tutorStatus.textContent = `✓ 已读取 ${projectFiles.length} 个代码文件`;
+  } catch (error) {
+    tutorStatus.textContent = errorMessage(error);
+  } finally {
+    openProjectButton.disabled = false;
   }
 });
 
-nextStepButton.addEventListener('click', async () => {
-  demoRunning = false;
-  demoRunId += 1;
-  runDemoButton.textContent = '▶ 让老师开始跳';
-  currentStep = (currentStep + 1) % demoMoves.length;
-  await moveToCurrentStep();
-});
-
-async function moveToCurrentStep(): Promise<void> {
-  const move = demoMoves[currentStep];
-  if (!move) {
+jumpToCursorButton.addEventListener('click', async () => {
+  const position = editorController.editor.getPosition();
+  if (!position) {
     return;
   }
 
-  await characterController.moveTo(move);
-  updateActiveFile();
+  await characterController.moveTo({
+    filePath: editorController.path,
+    line: position.lineNumber,
+    column: position.column,
+    action: 'point',
+    speech: isRealProject
+      ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`
+      : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。',
+  });
+});
+
+function renderFileTree(paths: string[]): void {
+  fileTree.replaceChildren();
+
+  if (paths.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'file-tree-empty';
+    empty.textContent = '没有找到支持的代码文件';
+    fileTree.appendChild(empty);
+    return;
+  }
+
+  const tree = buildTree(paths);
+  renderTreeNodes(tree, fileTree, 0);
   updateFileTreeSelection();
 }
 
-function renderFileTree(): void {
-  for (const file of demoFiles) {
+function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: number): void {
+  for (const node of nodes) {
+    if (node.type === 'directory') {
+      const row = document.createElement('div');
+      row.className = 'directory-item';
+      row.style.paddingLeft = `${12 + depth * 14}px`;
+      row.innerHTML = `<span class="directory-arrow">⌄</span><span>📁 ${escapeText(node.name)}</span>`;
+      container.appendChild(row);
+      renderTreeNodes(node.children, container, depth + 1);
+      continue;
+    }
+
     const button = document.createElement('button');
     button.className = 'file-item';
-    button.dataset.path = file.path;
-    button.innerHTML = `<span class="file-icon">TS</span><span>${file.path.replace('src/', '')}</span>`;
-    button.addEventListener('click', () => {
-      demoRunning = false;
-      demoRunId += 1;
-      runDemoButton.textContent = '▶ 让老师开始跳';
-      characterController.hideBubble();
-      editorController.openFile(file.path);
-      updateActiveFile();
-      updateFileTreeSelection();
+    button.dataset.path = node.path;
+    button.style.paddingLeft = `${22 + depth * 14}px`;
+    button.innerHTML = `<span class="file-icon">${fileLabel(node.path)}</span><span>${escapeText(node.name)}</span>`;
+    button.addEventListener('click', async () => {
+      characterController.clear('已切换文件');
+
+      try {
+        if (isRealProject) {
+          await openRealProjectFile(node.path, false);
+        } else {
+          editorController.openFile(node.path);
+          updateActiveFile();
+          updateFileTreeSelection();
+        }
+      } catch (error) {
+        tutorStatus.textContent = errorMessage(error);
+      }
     });
-    fileTree.appendChild(button);
+    container.appendChild(button);
+  }
+}
+
+async function openRealProjectFile(path: string, replaceWorkspace: boolean): Promise<void> {
+  tutorStatus.textContent = `正在打开 ${path}…`;
+  const result = await window.tutorIde.readProjectFile(path);
+  const file = {
+    path: result.path,
+    language: languageFromPath(result.path),
+    content: result.content,
+  };
+
+  if (replaceWorkspace) {
+    editorController.replaceWorkspace(file);
+  } else {
+    editorController.openFileContent(file);
   }
 
+  updateActiveFile();
   updateFileTreeSelection();
+  tutorStatus.textContent = `已打开 ${path}`;
 }
 
 function updateActiveFile(): void {
@@ -180,6 +238,147 @@ function updateFileTreeSelection(): void {
   for (const item of fileTree.querySelectorAll<HTMLButtonElement>('.file-item')) {
     item.dataset.active = String(item.dataset.path === editorController.path);
   }
+}
+
+interface TreeDirectoryNode {
+  type: 'directory';
+  name: string;
+  children: TreeNode[];
+}
+
+interface TreeFileNode {
+  type: 'file';
+  name: string;
+  path: string;
+}
+
+type TreeNode = TreeDirectoryNode | TreeFileNode;
+
+function buildTree(paths: string[]): TreeNode[] {
+  const root: TreeDirectoryNode = {
+    type: 'directory',
+    name: '',
+    children: [],
+  };
+
+  for (const filePath of paths) {
+    const parts = filePath.split('/').filter(Boolean);
+    let directory = root;
+
+    parts.forEach((part, index) => {
+      const isFile = index === parts.length - 1;
+
+      if (isFile) {
+        directory.children.push({
+          type: 'file',
+          name: part,
+          path: filePath,
+        });
+        return;
+      }
+
+      let child = directory.children.find(
+        (node): node is TreeDirectoryNode => node.type === 'directory' && node.name === part,
+      );
+
+      if (!child) {
+        child = {
+          type: 'directory',
+          name: part,
+          children: [],
+        };
+        directory.children.push(child);
+      }
+
+      directory = child;
+    });
+  }
+
+  sortTree(root.children);
+  return root.children;
+}
+
+function sortTree(nodes: TreeNode[]): void {
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) {
+      return a.type === 'directory' ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  for (const node of nodes) {
+    if (node.type === 'directory') {
+      sortTree(node.children);
+    }
+  }
+}
+
+function chooseInitialFile(paths: string[]): string | undefined {
+  const priorities = [
+    'src/main.ts',
+    'src/main.tsx',
+    'src/main.js',
+    'lib/main.dart',
+    'main.py',
+    'package.json',
+    'README.md',
+  ];
+
+  for (const priority of priorities) {
+    const match = paths.find((path) => path.toLowerCase() === priority.toLowerCase());
+    if (match) {
+      return match;
+    }
+  }
+
+  return paths[0];
+}
+
+function languageFromPath(path: string): string {
+  const lower = path.toLowerCase();
+  const fileName = lower.split('/').at(-1) ?? lower;
+
+  if (fileName === 'dockerfile') return 'dockerfile';
+  if (lower.endsWith('.tsx')) return 'typescript';
+  if (lower.endsWith('.ts')) return 'typescript';
+  if (lower.endsWith('.jsx')) return 'javascript';
+  if (lower.endsWith('.mjs') || lower.endsWith('.cjs') || lower.endsWith('.js')) return 'javascript';
+  if (lower.endsWith('.json')) return 'json';
+  if (lower.endsWith('.html')) return 'html';
+  if (lower.endsWith('.css')) return 'css';
+  if (lower.endsWith('.scss')) return 'scss';
+  if (lower.endsWith('.less')) return 'less';
+  if (lower.endsWith('.md')) return 'markdown';
+  if (lower.endsWith('.dart')) return 'dart';
+  if (lower.endsWith('.py')) return 'python';
+  if (lower.endsWith('.java')) return 'java';
+  if (lower.endsWith('.kt') || lower.endsWith('.kts')) return 'kotlin';
+  if (lower.endsWith('.go')) return 'go';
+  if (lower.endsWith('.rs')) return 'rust';
+  if (lower.endsWith('.cs')) return 'csharp';
+  if (lower.endsWith('.cpp') || lower.endsWith('.cc')) return 'cpp';
+  if (lower.endsWith('.c')) return 'c';
+  if (lower.endsWith('.sql')) return 'sql';
+  if (lower.endsWith('.xml')) return 'xml';
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
+  return 'plaintext';
+}
+
+function fileLabel(path: string): string {
+  const language = languageFromPath(path);
+  const labels: Record<string, string> = {
+    typescript: 'TS',
+    javascript: 'JS',
+    json: '{}',
+    dart: 'D',
+    python: 'PY',
+    java: 'JV',
+    kotlin: 'KT',
+    markdown: 'MD',
+    css: '#',
+    html: '<>',
+  };
+  return labels[language] ?? '·';
 }
 
 function requireElement(id: string): HTMLElement {
@@ -198,8 +397,17 @@ function requireButton(id: string): HTMLButtonElement {
   return element;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : '操作失败';
+}
+
+function escapeText(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 window.addEventListener('beforeunload', () => {
