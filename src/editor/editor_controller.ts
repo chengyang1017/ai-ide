@@ -162,8 +162,36 @@ export class EditorController {
       return null;
     }
 
-    const word = model.getWordAtPosition(position);
-    if (!word?.word) {
+    const selection = this.editor.getSelection();
+    const hasSelection = Boolean(selection && !selection.isEmpty());
+    let query = '';
+
+    if (hasSelection && selection) {
+      const selectedText = model.getValueInRange(selection).trim();
+      if (
+        selectedText.length >= 2
+        && selectedText.length <= 120
+        && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(selectedText)
+      ) {
+        query = selectedText;
+      }
+    }
+
+    if (!query) {
+      const word = model.getWordAtPosition(position);
+      if (word?.word) {
+        query = word.word;
+      }
+    }
+
+    // 选中整个函数时，selection 起点可能落在 Future / void 上。
+    // Alpha 0.7 会把完整 Selection 一起交给 Dart LSP，让它自动找到
+    // selection 内部（或包含 selection）的真正函数 / 方法声明。
+    if (!query && hasSelection) {
+      query = '当前 Dart 函数';
+    }
+
+    if (!query) {
       return null;
     }
 
@@ -171,8 +199,14 @@ export class EditorController {
       filePath: this.currentPath,
       line: position.lineNumber,
       column: position.column,
-      query: word.word,
+      query,
       documentText: model.getValue(),
+      ...(hasSelection && selection ? {
+        selectionStartLine: selection.startLineNumber,
+        selectionStartColumn: selection.startColumn,
+        selectionEndLine: selection.endLineNumber,
+        selectionEndColumn: selection.endColumn,
+      } : {}),
     };
   }
 

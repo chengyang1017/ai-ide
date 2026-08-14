@@ -1,6 +1,15 @@
-# AI Code Tutor IDE — Alpha 0.6
+# AI Code Tutor IDE — Alpha 0.7
 
 一个独立桌面代码编辑器原型。核心目标不是做“右侧 AI 聊天框”，而是让动画 AI 导师直接生活在代码区域里，并能够沿真实项目调用链跨文件跳着讲。
+
+
+## Alpha 0.7 新增
+
+1. `AI 理解函数` 不再要求精准点中函数名：支持选中整个 Dart 函数、只选函数名、或把光标放在函数体内部。
+2. Electron 把 Selection 范围传给 Dart LSP，通过 `textDocument/documentSymbol` 自动找到最近的 Function / Method / Constructor，再从真实符号位置启动 Call Hierarchy。
+3. 修复选中 `Future<void> foo() { ... }` 时误把 `Future` 当成语义根节点的问题。
+4. 左侧项目文件夹默认全部折叠，避免大型项目打开后整棵目录树铺满。
+5. 用户手动展开的目录保持展开；角色 / AI 跨文件导航时只自动展开目标文件的祖先目录并滚动到当前文件。
 
 ## Alpha 0.6
 

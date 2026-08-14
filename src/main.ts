@@ -18,7 +18,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.6 · AI + Dart 真实调用链教学</small>
+          <small>Alpha 0.7 · 函数智能识别 + 折叠文件树</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -45,8 +45,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.6</strong>
-          <p>把光标放在 Dart 函数 / 方法名上，Dart Analysis Server 先生成真实 Call Hierarchy，再由 AI 选择最值得教学的上游、当前函数和下游调用，角色按功能链跨文件跳着讲。</p>
+          <strong>Alpha 0.7</strong>
+          <p>可以选中整个 Dart 函数、只选函数名，或把光标放在函数体内部；IDE 会自动定位真正的 callable。文件夹默认折叠，角色跨文件导航时只展开当前目标路径。</p>
         </div>
       </aside>
 
@@ -151,7 +151,7 @@ const characterController = new CharacterController(
     if (!isRealProject) {
       throw new Error('请先打开真实项目。');
     }
-    await openRealProjectFile(path, false);
+    await openRealProjectFile(path, false, true);
   },
 );
 
@@ -166,6 +166,7 @@ let semanticAiTourSequence = 0;
 let semanticAiTourRunning = false;
 let aiTourSequence = 0;
 let aiTourRunning = false;
+const expandedDirectories = new Set<string>();
 
 renderFileTree(projectFiles);
 updateActiveFile();
@@ -209,7 +210,7 @@ openProjectButton.addEventListener('click', async () => {
       return;
     }
 
-    await openRealProjectFile(firstFile, true);
+    await openRealProjectFile(firstFile, true, false);
     tutorStatus.textContent = `✓ 已读取 ${projectFiles.length} 个代码文件`;
   } catch (error) {
     tutorStatus.textContent = errorMessage(error);
@@ -303,7 +304,7 @@ findRelatedButton.addEventListener('click', async () => {
       tutorStatus.textContent = `项目导航 ${index + 1} / ${moves.length} · ${move.filePath}:${move.line}`;
       await characterController.moveTo(move);
       updateActiveFile();
-      updateFileTreeSelection();
+      updateFileTreeSelection(true);
       await delay(move.waitMs ?? 1500);
     }
 
@@ -373,7 +374,7 @@ semanticRelatedButton.addEventListener('click', async () => {
       tutorStatus.textContent = `Dart 语义导航 ${index + 1} / ${route.moves.length} · ${move.filePath}:${move.line}`;
       await characterController.moveTo(move);
       updateActiveFile();
-      updateFileTreeSelection();
+      updateFileTreeSelection(true);
       await delay(move.waitMs ?? 1700);
     }
 
@@ -405,7 +406,7 @@ semanticAiTourButton.addEventListener('click', async () => {
 
   const focus = editorController.getSemanticFocus();
   if (!focus) {
-    tutorStatus.textContent = '请打开 Dart 文件，并把光标准确放在函数或方法名称上';
+    tutorStatus.textContent = '请打开 Dart 文件；可以选中整个函数、选中函数名，或把光标放在函数体内部';
     return;
   }
 
@@ -423,7 +424,7 @@ semanticAiTourButton.addEventListener('click', async () => {
   semanticAiTourRunning = true;
   semanticAiTourButton.textContent = '■ 停止 AI 调用链';
   semanticAiModeSelect.disabled = true;
-  tutorStatus.textContent = `Dart Analyzer 正在建立 “${focus.query}” 的真实调用图…`;
+  tutorStatus.textContent = `Dart Analyzer 正在识别当前函数并建立 “${focus.query}” 的真实调用图…`;
 
   try {
     const plan = await window.tutorIde.planDartSemanticTour(focus, mode);
@@ -449,7 +450,7 @@ semanticAiTourButton.addEventListener('click', async () => {
       tutorStatus.textContent = `AI 真实调用链 ${index + 1} / ${plan.moves.length} · ${move.filePath}:${move.line}`;
       await characterController.moveTo(move);
       updateActiveFile();
-      updateFileTreeSelection();
+      updateFileTreeSelection(true);
       await delay(move.waitMs ?? 2100);
     }
 
@@ -553,7 +554,7 @@ aiTourButton.addEventListener('click', async () => {
       tutorStatus.textContent = `AI 教学 ${index + 1} / ${plan.moves.length} · ${move.filePath}:${move.line}`;
       await characterController.moveTo(move);
       updateActiveFile();
-      updateFileTreeSelection();
+      updateFileTreeSelection(true);
       await delay(move.waitMs ?? 1900);
     }
 
@@ -651,6 +652,7 @@ async function saveApiKeyFromDialog(): Promise<void> {
 
 function renderFileTree(paths: string[]): void {
   fileTree.replaceChildren();
+  expandedDirectories.clear();
 
   if (paths.length === 0) {
     const empty = document.createElement('div');
@@ -662,18 +664,41 @@ function renderFileTree(paths: string[]): void {
 
   const tree = buildTree(paths);
   renderTreeNodes(tree, fileTree, 0);
-  updateFileTreeSelection();
+  updateFileTreeSelection(false);
 }
 
 function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: number): void {
   for (const node of nodes) {
     if (node.type === 'directory') {
-      const row = document.createElement('div');
+      const wrapper = document.createElement('div');
+      wrapper.className = 'directory-node';
+
+      const row = document.createElement('button');
+      row.type = 'button';
       row.className = 'directory-item';
+      row.dataset.directoryPath = node.path;
       row.style.paddingLeft = `${12 + depth * 14}px`;
-      row.innerHTML = `<span class="directory-arrow">⌄</span><span>📁 ${escapeText(node.name)}</span>`;
-      container.appendChild(row);
-      renderTreeNodes(node.children, container, depth + 1);
+
+      const arrow = document.createElement('span');
+      arrow.className = 'directory-arrow';
+      arrow.textContent = '›';
+
+      const label = document.createElement('span');
+      label.textContent = `📁 ${node.name}`;
+      row.append(arrow, label);
+
+      const children = document.createElement('div');
+      children.className = 'directory-children';
+      children.dataset.directoryChildren = node.path;
+      children.hidden = true;
+
+      row.addEventListener('click', () => {
+        setDirectoryExpanded(node.path, !expandedDirectories.has(node.path));
+      });
+
+      wrapper.append(row, children);
+      container.appendChild(wrapper);
+      renderTreeNodes(node.children, children, depth + 1);
       continue;
     }
 
@@ -691,11 +716,11 @@ function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: numbe
 
       try {
         if (isRealProject) {
-          await openRealProjectFile(node.path, false);
+          await openRealProjectFile(node.path, false, true);
         } else {
           editorController.openFile(node.path);
           updateActiveFile();
-          updateFileTreeSelection();
+          updateFileTreeSelection(true);
         }
       } catch (error) {
         tutorStatus.textContent = errorMessage(error);
@@ -705,7 +730,11 @@ function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: numbe
   }
 }
 
-async function openRealProjectFile(path: string, replaceWorkspace: boolean): Promise<void> {
+async function openRealProjectFile(
+  path: string,
+  replaceWorkspace: boolean,
+  revealInTree = true,
+): Promise<void> {
   tutorStatus.textContent = `正在打开 ${path}…`;
   const result = await window.tutorIde.readProjectFile(path);
   const file = {
@@ -721,7 +750,7 @@ async function openRealProjectFile(path: string, replaceWorkspace: boolean): Pro
   }
 
   updateActiveFile();
-  updateFileTreeSelection();
+  updateFileTreeSelection(revealInTree);
   tutorStatus.textContent = `已打开 ${path}`;
 }
 
@@ -729,15 +758,67 @@ function updateActiveFile(): void {
   activeFile.textContent = editorController.path;
 }
 
-function updateFileTreeSelection(): void {
+function updateFileTreeSelection(revealInTree = false): void {
+  if (revealInTree && editorController.path) {
+    expandAncestorsForPath(editorController.path);
+  }
+
+  let activeItem: HTMLButtonElement | null = null;
   for (const item of fileTree.querySelectorAll<HTMLButtonElement>('.file-item')) {
-    item.dataset.active = String(item.dataset.path === editorController.path);
+    const active = item.dataset.path === editorController.path;
+    item.dataset.active = String(active);
+    if (active) {
+      activeItem = item;
+    }
+  }
+
+  if (revealInTree) {
+    activeItem?.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function expandAncestorsForPath(filePath: string): void {
+  const parts = filePath.split('/').filter(Boolean);
+  if (parts.length <= 1) {
+    return;
+  }
+
+  let current = '';
+  for (const part of parts.slice(0, -1)) {
+    current = current ? `${current}/${part}` : part;
+    setDirectoryExpanded(current, true);
+  }
+}
+
+function setDirectoryExpanded(path: string, expanded: boolean): void {
+  if (expanded) {
+    expandedDirectories.add(path);
+  } else {
+    expandedDirectories.delete(path);
+  }
+
+  for (const row of fileTree.querySelectorAll<HTMLButtonElement>('.directory-item')) {
+    if (row.dataset.directoryPath !== path) {
+      continue;
+    }
+    row.dataset.expanded = String(expanded);
+    const arrow = row.querySelector<HTMLElement>('.directory-arrow');
+    if (arrow) {
+      arrow.textContent = expanded ? '⌄' : '›';
+    }
+  }
+
+  for (const children of fileTree.querySelectorAll<HTMLElement>('.directory-children')) {
+    if (children.dataset.directoryChildren === path) {
+      children.hidden = !expanded;
+    }
   }
 }
 
 interface TreeDirectoryNode {
   type: 'directory';
   name: string;
+  path: string;
   children: TreeNode[];
 }
 
@@ -753,6 +834,7 @@ function buildTree(paths: string[]): TreeNode[] {
   const root: TreeDirectoryNode = {
     type: 'directory',
     name: '',
+    path: '',
     children: [],
   };
 
@@ -777,9 +859,11 @@ function buildTree(paths: string[]): TreeNode[] {
       );
 
       if (!child) {
+        const parentPath = directory.path;
         child = {
           type: 'directory',
           name: part,
+          path: parentPath ? `${parentPath}/${part}` : part,
           children: [],
         };
         directory.children.push(child);

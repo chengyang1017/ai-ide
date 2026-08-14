@@ -65,19 +65,40 @@ class DartLspClient {
   }
 
 
-  async findCallGraph({ absolutePath, content, line, column, direction = 'both', maxDepth = 2, maxNodes = 24 }) {
+  async findCallGraph({
+    absolutePath,
+    content,
+    line,
+    column,
+    direction = 'both',
+    maxDepth = 2,
+    maxNodes = 24,
+    selectionStartLine = null,
+    selectionStartColumn = null,
+    selectionEndLine = null,
+    selectionEndColumn = null,
+  }) {
     await this.start();
     const uri = pathToFileURL(absolutePath).toString();
     this.syncDocument(uri, content);
 
-    const position = {
+    const directPosition = {
       line: Math.max(0, line - 1),
       character: Math.max(0, column - 1),
     };
 
+    const resolved = await this.resolveCallablePosition({
+      uri,
+      directPosition,
+      selectionStartLine,
+      selectionStartColumn,
+      selectionEndLine,
+      selectionEndColumn,
+    });
+
     const prepared = await this.request('textDocument/prepareCallHierarchy', {
       textDocument: { uri },
-      position,
+      position: resolved.position,
     }).catch(() => null);
 
     const callItems = Array.isArray(prepared) ? prepared : [];
@@ -182,6 +203,50 @@ class DartLspClient {
     };
   }
 
+  async resolveCallablePosition({
+    uri,
+    directPosition,
+    selectionStartLine,
+    selectionStartColumn,
+    selectionEndLine,
+    selectionEndColumn,
+  }) {
+    const selection = toLspSelectionRange({
+      selectionStartLine,
+      selectionStartColumn,
+      selectionEndLine,
+      selectionEndColumn,
+    });
+
+    // 没有 Selection 时先尊重用户精确点中的函数名；成功就不用额外请求。
+    if (!selection) {
+      const direct = await this.request('textDocument/prepareCallHierarchy', {
+        textDocument: { uri },
+        position: directPosition,
+      }).catch(() => null);
+      if (Array.isArray(direct) && direct.length > 0) {
+        return { position: directPosition };
+      }
+    }
+
+    // 选中整个函数、或光标位于函数体内部时，利用 Document Symbols
+    // 自动定位最近的 Function / Method / Constructor 声明，再把它的
+    // selectionRange 起点作为 Call Hierarchy 的真正入口。
+    const symbols = await this.request('textDocument/documentSymbol', {
+      textDocument: { uri },
+    }).catch(() => []);
+
+    const callable = chooseCallableDocumentSymbol(symbols, selection, directPosition);
+    if (callable) {
+      return {
+        position: callable.selectionRange?.start || callable.range.start,
+        name: callable.name || '',
+      };
+    }
+
+    return { position: directPosition };
+  }
+
   async start() {
     if (this.startPromise) {
       return this.startPromise;
@@ -264,6 +329,7 @@ class DartLspClient {
         textDocument: {
           definition: { linkSupport: true },
           references: {},
+          documentSymbol: { hierarchicalDocumentSymbolSupport: true },
           callHierarchy: { dynamicRegistration: true },
           synchronization: {
             didSave: false,
@@ -447,6 +513,140 @@ class DartLspClient {
       // Electron 退出时尽力结束子进程即可。
     }
   }
+}
+
+const CALLABLE_SYMBOL_KINDS = new Set([6, 9, 12]); // Method, Constructor, Function
+
+function toLspSelectionRange(value) {
+  const fields = [
+    value.selectionStartLine,
+    value.selectionStartColumn,
+    value.selectionEndLine,
+    value.selectionEndColumn,
+  ];
+  if (!fields.every(Number.isInteger)) {
+    return null;
+  }
+
+  const start = {
+    line: Math.max(0, value.selectionStartLine - 1),
+    character: Math.max(0, value.selectionStartColumn - 1),
+  };
+  const end = {
+    line: Math.max(0, value.selectionEndLine - 1),
+    character: Math.max(0, value.selectionEndColumn - 1),
+  };
+
+  return comparePosition(start, end) <= 0
+    ? { start, end }
+    : { start: end, end: start };
+}
+
+function chooseCallableDocumentSymbol(value, selection, cursor) {
+  const symbols = flattenDocumentSymbols(value)
+    .filter((symbol) => CALLABLE_SYMBOL_KINDS.has(Number(symbol.kind)))
+    .filter((symbol) => symbol.range?.start && symbol.range?.end);
+
+  if (symbols.length === 0) {
+    return null;
+  }
+
+  const ranked = symbols
+    .map((symbol) => ({ symbol, score: callableSymbolScore(symbol, selection, cursor) }))
+    .filter((entry) => Number.isFinite(entry.score))
+    .sort((a, b) => a.score - b.score);
+
+  return ranked[0]?.symbol || null;
+}
+
+function flattenDocumentSymbols(value) {
+  const items = Array.isArray(value) ? value : [];
+  const result = [];
+
+  const visit = (item) => {
+    if (!item || typeof item !== 'object') {
+      return;
+    }
+
+    // DocumentSymbol
+    if (item.range?.start && item.range?.end) {
+      result.push(item);
+      for (const child of Array.isArray(item.children) ? item.children : []) {
+        visit(child);
+      }
+      return;
+    }
+
+    // SymbolInformation fallback
+    if (item.location?.range?.start && item.location?.range?.end) {
+      result.push({
+        name: item.name,
+        kind: item.kind,
+        range: item.location.range,
+        selectionRange: item.location.range,
+      });
+    }
+  };
+
+  for (const item of items) {
+    visit(item);
+  }
+  return result;
+}
+
+function callableSymbolScore(symbol, selection, cursor) {
+  const range = symbol.range;
+  const size = rangeSpanScore(range);
+
+  if (selection) {
+    if (rangeContainsRange(selection, range)) {
+      // 用户框选整个函数：优先被 Selection 完整包住的 callable。
+      return size;
+    }
+    if (rangeContainsRange(range, selection)) {
+      // 用户只选函数体的一部分。
+      return 1_000_000 + size;
+    }
+    if (rangesOverlap(range, selection)) {
+      return 2_000_000 + size;
+    }
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (positionInRange(cursor, range)) {
+    // 光标在函数体任意位置：选择范围最小的 callable（最内层函数）。
+    return size;
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+function rangeContainsRange(outer, inner) {
+  return comparePosition(outer.start, inner.start) <= 0
+    && comparePosition(outer.end, inner.end) >= 0;
+}
+
+function rangesOverlap(a, b) {
+  return comparePosition(a.start, b.end) <= 0
+    && comparePosition(b.start, a.end) <= 0;
+}
+
+function positionInRange(position, range) {
+  return comparePosition(range.start, position) <= 0
+    && comparePosition(position, range.end) <= 0;
+}
+
+function comparePosition(a, b) {
+  if (a.line !== b.line) {
+    return a.line - b.line;
+  }
+  return a.character - b.character;
+}
+
+function rangeSpanScore(range) {
+  const lineSpan = Math.max(0, Number(range.end.line) - Number(range.start.line));
+  const characterSpan = Math.max(0, Number(range.end.character) - Number(range.start.character));
+  return lineSpan * 100_000 + characterSpan;
 }
 
 function buildCallHierarchyTargets(item, incomingValue, outgoingValue) {

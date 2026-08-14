@@ -448,15 +448,33 @@ button:disabled {
   }
 }
 
-/* Alpha 0.2：真实项目文件树。 */
+/* Alpha 0.7：真实项目文件树默认折叠，只在用户展开或 Tutor 导航时打开路径。 */
 .directory-item {
   display: flex;
   align-items: center;
   gap: 5px;
+  width: 100%;
   min-height: 25px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #aeb4bf;
   font-size: 11px;
+  text-align: left;
+  cursor: pointer;
   user-select: none;
+}
+
+.directory-item:hover {
+  background: #20242c;
+}
+
+.directory-item[data-expanded="true"] {
+  color: #d1d5dd;
+}
+
+.directory-children[hidden] {
+  display: none;
 }
 
 .directory-arrow {

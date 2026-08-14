@@ -12,6 +12,10 @@ export interface SemanticFocus {
   column: number;
   query: string;
   documentText: string;
+  selectionStartLine?: number;
+  selectionStartColumn?: number;
+  selectionEndLine?: number;
+  selectionEndColumn?: number;
 }
 
 export interface SemanticLocation {

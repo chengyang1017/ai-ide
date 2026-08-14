@@ -251,10 +251,14 @@ ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode) =
     direction: mode === 'incoming' ? 'incoming' : mode === 'outgoing' ? 'outgoing' : 'both',
     maxDepth: mode === 'full' ? 2 : 3,
     maxNodes: MAX_SEMANTIC_AI_NODES,
+    selectionStartLine: focus.selectionStartLine,
+    selectionStartColumn: focus.selectionStartColumn,
+    selectionEndLine: focus.selectionEndLine,
+    selectionEndColumn: focus.selectionEndColumn,
   });
 
   if (!graph.nodes.length) {
-    throw new Error(`Dart Analyzer 没有为 “${focus.query}” 提供 Call Hierarchy。请把光标放在函数或方法名称上。`);
+    throw new Error(`Dart Analyzer 没有定位到 “${focus.query}” 对应的函数 / 方法。你可以选中整个函数、选中函数名，或把光标放在函数体内部。`);
   }
 
   const candidates = await buildSemanticAiCandidates(graph.nodes);
@@ -262,8 +266,13 @@ ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode) =
     throw new Error('调用关系存在，但都位于当前项目之外；Alpha 0.6 默认不展开 Flutter SDK / 第三方包。');
   }
 
+  const resolvedFocus = {
+    ...focus,
+    query: graph.symbolName || focus.query,
+  };
+
   const aiPlan = await requestSemanticTutorPlan({
-    focus,
+    focus: resolvedFocus,
     mode,
     symbolName: graph.symbolName || focus.query,
     candidates,
@@ -314,6 +323,18 @@ function validateSemanticFocus(value) {
     : '';
   const line = Number.isInteger(value.line) ? Math.max(1, value.line) : 1;
   const column = Number.isInteger(value.column) ? Math.max(1, value.column) : 1;
+  const selectionStartLine = Number.isInteger(value.selectionStartLine)
+    ? Math.max(1, value.selectionStartLine)
+    : null;
+  const selectionStartColumn = Number.isInteger(value.selectionStartColumn)
+    ? Math.max(1, value.selectionStartColumn)
+    : null;
+  const selectionEndLine = Number.isInteger(value.selectionEndLine)
+    ? Math.max(1, value.selectionEndLine)
+    : null;
+  const selectionEndColumn = Number.isInteger(value.selectionEndColumn)
+    ? Math.max(1, value.selectionEndColumn)
+    : null;
 
   if (!currentProjectFiles.includes(filePath)) {
     throw new Error('当前文件不属于已打开项目。');
@@ -325,7 +346,17 @@ function validateSemanticFocus(value) {
     throw new Error('当前文件内容为空。');
   }
 
-  return { filePath, query, documentText, line, column };
+  return {
+    filePath,
+    query,
+    documentText,
+    line,
+    column,
+    selectionStartLine,
+    selectionStartColumn,
+    selectionEndLine,
+    selectionEndColumn,
+  };
 }
 
 function toProjectRelativePath(absolutePath) {
