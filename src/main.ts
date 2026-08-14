@@ -19,7 +19,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.8 · 角色语音讲解</small>
+          <small>Alpha 0.9 · 多语言系统语音</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -35,6 +35,9 @@ app.innerHTML = `
         </select>
         <button id="semantic-ai-tour" class="semantic-ai-button" disabled>🧠✨ AI 理解函数</button>
         <button id="voice-toggle" class="voice-button">🔊 语音开启</button>
+        <select id="voice-language" class="voice-language" title="语音语言">
+          <option value="zh-CN">中文（简体）</option>
+        </select>
         <select id="voice-rate" class="voice-rate" title="语音速度">
           <option value="0.8">0.8×</option>
           <option value="1" selected>1.0×</option>
@@ -53,8 +56,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.8</strong>
-          <p>角色跳到代码后会直接用系统语音朗读气泡内容；说完这一段才继续跳下一段。语音不需要 OpenAI API Key，可随时关闭并调整语速。</p>
+          <strong>Alpha 0.9</strong>
+          <p>系统语音现在可以选择语言。IDE 会读取 Windows / Chromium 已安装的声音，优先使用所选语言；没有对应声音时会明确提示，而不是悄悄使用英文默认音。</p>
         </div>
       </aside>
 
@@ -141,6 +144,7 @@ const semanticRelatedButton = requireButton('semantic-related');
 const semanticAiModeSelect = requireSelect('semantic-ai-mode');
 const semanticAiTourButton = requireButton('semantic-ai-tour');
 const voiceToggleButton = requireButton('voice-toggle');
+const voiceLanguageSelect = requireSelect('voice-language');
 const voiceRateSelect = requireSelect('voice-rate');
 const setApiKeyButton = requireButton('set-api-key');
 const aiTourButton = requireButton('ai-tour');
@@ -154,14 +158,21 @@ const apiKeyCancelButton = requireButton('api-key-cancel');
 const apiKeySaveButton = requireButton('api-key-save');
 
 const editorController = new EditorController(editorElement, demoFiles);
+let preferredVoiceLanguage = localStorage.getItem('tutor.voiceLanguage') ?? 'zh-CN';
+
 const voiceController = new VoiceController({
   character: characterElement,
   onStateChange: (_state, message) => {
     voiceStatus.textContent = `语音：${message}`;
   },
+  onVoicesChanged: (languages) => {
+    renderVoiceLanguageOptions(languages);
+  },
 });
 let voiceEnabledPreference = true;
+voiceController.setLanguage(preferredVoiceLanguage);
 voiceController.setEnabled(true);
+renderVoiceLanguageOptions(voiceController.getLanguageOptions());
 
 const characterController = new CharacterController(
   editorController,
@@ -500,9 +511,16 @@ voiceToggleButton.addEventListener('click', () => {
     : '🔇 语音关闭';
 });
 
+voiceLanguageSelect.addEventListener('change', () => {
+  preferredVoiceLanguage = voiceLanguageSelect.value;
+  localStorage.setItem('tutor.voiceLanguage', preferredVoiceLanguage);
+  voiceController.stop();
+  voiceController.setLanguage(preferredVoiceLanguage);
+});
+
 voiceRateSelect.addEventListener('change', () => {
   voiceController.setRate(Number(voiceRateSelect.value));
-  voiceStatus.textContent = `语音：${voiceRateSelect.value}×`;
+  voiceStatus.textContent = `语音：${voiceRateSelect.value}× · ${voiceLanguageSelect.selectedOptions[0]?.textContent ?? preferredVoiceLanguage}`;
 });
 
 setApiKeyButton.addEventListener('click', () => {
@@ -997,6 +1015,33 @@ function fileLabel(path: string): string {
     html: '<>',
   };
   return labels[language] ?? '·';
+}
+
+function renderVoiceLanguageOptions(
+  languages: Array<{ code: string; label: string; available: boolean; voiceCount: number }>,
+): void {
+  const selected = preferredVoiceLanguage;
+  voiceLanguageSelect.replaceChildren();
+
+  for (const language of languages) {
+    const option = document.createElement('option');
+    option.value = language.code;
+    option.textContent = language.available
+      ? `${language.label} · ${language.voiceCount} 个声音`
+      : `${language.label} · 未安装`;
+    option.dataset.available = String(language.available);
+    voiceLanguageSelect.appendChild(option);
+  }
+
+  if (![...voiceLanguageSelect.options].some((option) => option.value === selected)) {
+    const option = document.createElement('option');
+    option.value = selected;
+    option.textContent = `${selected} · 未安装`;
+    option.dataset.available = 'false';
+    voiceLanguageSelect.appendChild(option);
+  }
+
+  voiceLanguageSelect.value = selected;
 }
 
 function requireElement(id: string): HTMLElement {

@@ -1,30 +1,69 @@
 export interface VoiceControllerOptions {
   character: HTMLElement;
   onStateChange?: (state: VoiceState, message: string) => void;
+  onVoicesChanged?: (languages: VoiceLanguageOption[]) => void;
 }
 
 export type VoiceState = 'idle' | 'speaking' | 'paused' | 'disabled' | 'error';
 
+export interface VoiceLanguageOption {
+  code: string;
+  label: string;
+  available: boolean;
+  voiceCount: number;
+}
+
+const LANGUAGE_PRESETS: Array<{ code: string; label: string }> = [
+  { code: 'zh-CN', label: '中文（简体）' },
+  { code: 'zh-TW', label: '中文（繁體）' },
+  { code: 'en-US', label: 'English (US)' },
+  { code: 'en-GB', label: 'English (UK)' },
+  { code: 'vi-VN', label: 'Tiếng Việt' },
+  { code: 'ru-RU', label: 'Русский' },
+  { code: 'ky-KG', label: 'Кыргызча' },
+  { code: 'tr-TR', label: 'Türkçe' },
+  { code: 'ms-MY', label: 'Bahasa Melayu' },
+  { code: 'id-ID', label: 'Bahasa Indonesia' },
+  { code: 'ja-JP', label: '日本語' },
+  { code: 'ko-KR', label: '한국어' },
+  { code: 'es-ES', label: 'Español' },
+  { code: 'fr-FR', label: 'Français' },
+  { code: 'de-DE', label: 'Deutsch' },
+];
+
 /**
- * Alpha 0.8：Renderer 内的本地 TTS 控制器。
+ * Alpha 0.9：Renderer 内的本地 TTS 控制器。
  *
- * 不调用 OpenAI Audio API，也不需要额外 API Key。
- * 直接使用 Electron / Chromium 暴露的 Web Speech speechSynthesis，
- * 因此优先使用 Windows 本机已经安装的中文语音。
+ * - 不调用 OpenAI Audio API，也不需要额外 API Key。
+ * - 使用 Electron / Chromium 暴露的 Web Speech speechSynthesis。
+ * - 支持按语言选择系统语音，并处理 Windows/Chromium 异步加载 voices 的情况。
  */
 export class VoiceController {
   private enabled = true;
   private rate = 1;
   private selectedVoiceName = '';
+  private selectedLanguage = 'zh-CN';
   private sequence = 0;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private resolveCurrent: (() => void) | null = null;
   private readonly character: HTMLElement;
   private readonly onStateChange?: VoiceControllerOptions['onStateChange'];
+  private readonly onVoicesChanged?: VoiceControllerOptions['onVoicesChanged'];
 
   constructor(options: VoiceControllerOptions) {
     this.character = options.character;
     this.onStateChange = options.onStateChange;
+    this.onVoicesChanged = options.onVoicesChanged;
+
+    if (this.isSupported()) {
+      window.speechSynthesis.addEventListener('voiceschanged', () => {
+        this.emitVoicesChanged();
+      });
+
+      // Chromium 第一次打开页面时 getVoices() 可能先返回空数组。
+      // 下一轮事件循环再读一次，并等待后续 voiceschanged。
+      window.setTimeout(() => this.emitVoicesChanged(), 0);
+    }
   }
 
   get isEnabled(): boolean {
@@ -33,6 +72,10 @@ export class VoiceController {
 
   get currentRate(): number {
     return this.rate;
+  }
+
+  get currentLanguage(): string {
+    return this.selectedLanguage;
   }
 
   isSupported(): boolean {
@@ -52,7 +95,7 @@ export class VoiceController {
       return;
     }
 
-    this.setState('idle', '语音已开启');
+    this.setState('idle', this.languageStatusMessage());
   }
 
   setRate(rate: number): void {
@@ -66,14 +109,56 @@ export class VoiceController {
     this.selectedVoiceName = name;
   }
 
-  getVoiceOptions(): Array<{ name: string; lang: string }> {
-    if (!this.isSupported()) {
-      return [];
+  setLanguage(language: string): void {
+    const normalized = language.trim();
+    if (!normalized) {
+      return;
     }
 
-    return window.speechSynthesis
-      .getVoices()
+    this.selectedLanguage = normalized;
+    this.selectedVoiceName = '';
+
+    if (this.enabled) {
+      this.setState('idle', this.languageStatusMessage());
+    }
+  }
+
+  getVoiceOptions(): Array<{ name: string; lang: string }> {
+    return this.getVoices()
       .map((voice) => ({ name: voice.name, lang: voice.lang }));
+  }
+
+  getLanguageOptions(): VoiceLanguageOption[] {
+    const voices = this.getVoices();
+    const options = new Map<string, VoiceLanguageOption>();
+
+    for (const preset of LANGUAGE_PRESETS) {
+      const matchingVoices = voices.filter((voice) => languageMatches(voice.lang, preset.code));
+      options.set(preset.code, {
+        code: preset.code,
+        label: preset.label,
+        available: matchingVoices.length > 0,
+        voiceCount: matchingVoices.length,
+      });
+    }
+
+    // 系统如果安装了预设之外的语言，也自动加入下拉框。
+    for (const voice of voices) {
+      const code = normalizeLanguageTag(voice.lang);
+      if (!code || options.has(code)) {
+        continue;
+      }
+
+      const voiceCount = voices.filter((candidate) => languageMatches(candidate.lang, code)).length;
+      options.set(code, {
+        code,
+        label: code,
+        available: true,
+        voiceCount,
+      });
+    }
+
+    return [...options.values()];
   }
 
   /**
@@ -92,6 +177,10 @@ export class VoiceController {
       return;
     }
 
+    // Windows / Chromium 的 voices 往往异步注入。
+    // 最多等一小段时间，避免第一次朗读直接掉到英文默认音。
+    await this.waitForVoices();
+
     const speechId = this.invalidate();
     window.speechSynthesis.cancel();
 
@@ -100,13 +189,12 @@ export class VoiceController {
     utterance.rate = this.rate;
     utterance.pitch = 1;
     utterance.volume = 1;
+    utterance.lang = this.selectedLanguage;
 
     const voice = this.resolveVoice();
     if (voice) {
       utterance.voice = voice;
       utterance.lang = voice.lang;
-    } else {
-      utterance.lang = 'zh-CN';
     }
 
     await new Promise<void>((resolve) => {
@@ -128,7 +216,7 @@ export class VoiceController {
           finish();
           return;
         }
-        this.setState('speaking', '正在朗读');
+        this.setState('speaking', `正在朗读 · ${this.languageLabel(this.selectedLanguage)}`);
       };
 
       utterance.onpause = () => {
@@ -139,14 +227,14 @@ export class VoiceController {
 
       utterance.onresume = () => {
         if (speechId === this.sequence) {
-          this.setState('speaking', '继续朗读');
+          this.setState('speaking', `继续朗读 · ${this.languageLabel(this.selectedLanguage)}`);
         }
       };
 
       utterance.onend = () => {
         if (speechId === this.sequence) {
           this.currentUtterance = null;
-          this.setState('idle', '等待下一段');
+          this.setState('idle', this.languageStatusMessage());
         }
         finish();
       };
@@ -161,7 +249,19 @@ export class VoiceController {
         finish();
       };
 
-      this.setState('speaking', '正在朗读');
+      const resolvedVoice = this.resolveVoice();
+      if (!resolvedVoice) {
+        this.setState(
+          'speaking',
+          `${this.languageLabel(this.selectedLanguage)}未找到系统语音，可能回退到默认声音`,
+        );
+      } else {
+        this.setState(
+          'speaking',
+          `正在朗读 · ${this.languageLabel(this.selectedLanguage)} · ${resolvedVoice.name}`,
+        );
+      }
+
       window.speechSynthesis.speak(utterance);
     });
   }
@@ -189,11 +289,37 @@ export class VoiceController {
       window.speechSynthesis.cancel();
     }
     resolveCurrent?.();
-    this.setState(this.enabled ? 'idle' : 'disabled', this.enabled ? '等待讲解' : '语音已关闭');
+    this.setState(
+      this.enabled ? 'idle' : 'disabled',
+      this.enabled ? this.languageStatusMessage() : '语音已关闭',
+    );
+  }
+
+  private async waitForVoices(): Promise<void> {
+    if (this.getVoices().length > 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+        window.clearTimeout(timeout);
+        resolve();
+      };
+
+      const onVoicesChanged = () => finish();
+      const timeout = window.setTimeout(finish, 900);
+      window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged, { once: true });
+    });
   }
 
   private resolveVoice(): SpeechSynthesisVoice | undefined {
-    const voices = window.speechSynthesis.getVoices();
+    const voices = this.getVoices();
 
     if (this.selectedVoiceName) {
       const selected = voices.find((voice) => voice.name === this.selectedVoiceName);
@@ -202,9 +328,45 @@ export class VoiceController {
       }
     }
 
-    // 角色当前主要使用中文教学。优先系统中文声音，找不到再让系统使用默认声音。
-    return voices.find((voice) => /^zh[-_]/i.test(voice.lang))
-      ?? voices.find((voice) => voice.default);
+    const exact = voices.find(
+      (voice) => normalizeLanguageTag(voice.lang).toLowerCase() === this.selectedLanguage.toLowerCase(),
+    );
+    if (exact) {
+      return exact;
+    }
+
+    const sameLanguage = voices.find((voice) => languageMatches(voice.lang, this.selectedLanguage));
+    if (sameLanguage) {
+      return sameLanguage;
+    }
+
+    return undefined;
+  }
+
+  private getVoices(): SpeechSynthesisVoice[] {
+    if (!this.isSupported()) {
+      return [];
+    }
+    return window.speechSynthesis.getVoices();
+  }
+
+  private emitVoicesChanged(): void {
+    this.onVoicesChanged?.(this.getLanguageOptions());
+    if (this.enabled && !this.currentUtterance) {
+      this.setState('idle', this.languageStatusMessage());
+    }
+  }
+
+  private languageStatusMessage(): string {
+    const voice = this.resolveVoice();
+    const label = this.languageLabel(this.selectedLanguage);
+    return voice
+      ? `${label} · ${voice.name}`
+      : `${label} · 系统未找到对应语音`;
+  }
+
+  private languageLabel(code: string): string {
+    return LANGUAGE_PRESETS.find((preset) => preset.code === code)?.label ?? code;
   }
 
   private invalidate(): number {
@@ -218,4 +380,21 @@ export class VoiceController {
     this.character.dataset.voiceState = state;
     this.onStateChange?.(state, message);
   }
+}
+
+function normalizeLanguageTag(value: string): string {
+  return value.trim().replace('_', '-');
+}
+
+function languageMatches(voiceLanguage: string, requestedLanguage: string): boolean {
+  const voice = normalizeLanguageTag(voiceLanguage).toLowerCase();
+  const requested = normalizeLanguageTag(requestedLanguage).toLowerCase();
+
+  if (voice === requested) {
+    return true;
+  }
+
+  const voiceBase = voice.split('-')[0];
+  const requestedBase = requested.split('-')[0];
+  return Boolean(voiceBase && requestedBase && voiceBase === requestedBase);
 }

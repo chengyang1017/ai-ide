@@ -712,3 +712,21 @@ button:disabled {
     transform: scale(1.18);
   }
 }
+
+/* Alpha 0.9：系统 TTS 语言选择。 */
+.voice-language {
+  height: 32px;
+  min-width: 150px;
+  max-width: 210px;
+  border: 1px solid #343945;
+  border-radius: 7px;
+  background: #20242c;
+  color: #d7dae0;
+  padding: 0 7px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.voice-language option[data-available="false"] {
+  color: #8e96a3;
+}

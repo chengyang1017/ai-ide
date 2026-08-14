@@ -1,8 +1,19 @@
-# AI Code Tutor IDE — Alpha 0.8
+# AI Code Tutor IDE — Alpha 0.9
 
 一个独立桌面代码编辑器原型。核心目标不是做“右侧 AI 聊天框”，而是让动画 AI 导师直接生活在代码区域里，并能够沿真实项目调用链跨文件跳着讲。
 
-## Alpha 0.8 新增：角色语音教学
+## Alpha 0.9 新增：可选择系统语音语言
+
+1. 顶部新增“语音语言”下拉框，默认 `中文（简体）`。
+2. 支持常用语言预设：简体/繁体中文、英语、越南语、俄语、吉尔吉斯语、土耳其语、马来语、印尼语、日语、韩语、西班牙语、法语、德语。
+3. IDE 会读取 `speechSynthesis.getVoices()` 的真实系统声音，并显示每种语言当前检测到几个声音。
+4. Chromium 的系统 voices 经常异步加载；Alpha 0.9 会监听 `voiceschanged`，第一次朗读前也会短暂等待声音列表，避免直接掉到英文默认音。
+5. 朗读时优先选择与所选语言完全匹配的系统声音，再退到同语言的其他地区声音。
+6. 如果 Windows 没有安装该语言的 TTS 声音，下拉框会显示“未安装”，状态栏也会明确提示；此时系统仍可能回退到默认声音。
+7. 选择的语音语言会保存在本机 `localStorage`，下次启动 IDE 继续使用。
+8. 这个设置只改变 TTS 声音语言，不会自动翻译 AI 已经生成的教学文字。
+
+## Alpha 0.8：角色语音教学
 
 1. 角色每次跳到 `TutorMove` 目标后，会直接朗读该步骤的 `speech`。
 2. 使用 Electron Renderer 的系统 `speechSynthesis`，不调用 OpenAI Audio API，因此**语音本身不需要 API Key**。
@@ -38,7 +49,7 @@ npm run typecheck
 npm run dev
 ```
 
-Alpha 0.8 没有新增 npm 依赖，所以不需要重新 `npm install`。
+Alpha 0.9 没有新增 npm 依赖，所以不需要重新 `npm install`。
 
 Dart 语义分析依赖本机 Dart SDK：
 
