@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { DartLspClient } = require('./dart_lsp.cjs');
 const { WindowsTtsBridge } = require('./windows_tts.cjs');
 
@@ -48,6 +49,8 @@ const DEFAULT_APP_STATE = {
 };
 
 let persistentState = structuredClone(DEFAULT_APP_STATE);
+let codeNotesLoaded = false;
+let codeNotes = [];
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || 'gpt-5.2';
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -189,6 +192,106 @@ ipcMain.handle('project:write-file', async (_event, relativePath, rawContent) =>
   };
 });
 
+
+
+ipcMain.handle('notes:list', async (_event, relativePath) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const filePath = validateProjectFilePath(relativePath);
+  await ensureCodeNotesLoaded();
+  return codeNotes
+    .filter((note) => note.projectRoot === currentProjectRoot && note.filePath === filePath)
+    .map(({ projectRoot: _projectRoot, ...note }) => ({ ...note }))
+    .sort((a, b) => a.line - b.line || a.createdAt.localeCompare(b.createdAt));
+});
+
+ipcMain.handle('notes:upsert', async (_event, rawNote) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const input = rawNote && typeof rawNote === 'object' ? rawNote : {};
+  const filePath = validateProjectFilePath(input.filePath);
+  const text = typeof input.text === 'string' ? input.text.trim() : '';
+  if (!text) {
+    throw new Error('便签内容不能为空。');
+  }
+  if (text.length > 20000) {
+    throw new Error('单个代码便签最多 20000 个字符。');
+  }
+
+  const line = Number(input.line);
+  if (!Number.isInteger(line) || line < 1) {
+    throw new Error('便签行号无效。');
+  }
+
+  const anchorText = typeof input.anchorText === 'string'
+    ? input.anchorText.trim().slice(0, 500)
+    : '';
+  const requestedId = typeof input.id === 'string' ? input.id.trim() : '';
+  await ensureCodeNotesLoaded();
+
+  const now = new Date().toISOString();
+  const existingIndex = requestedId
+    ? codeNotes.findIndex((note) => (
+        note.id === requestedId
+        && note.projectRoot === currentProjectRoot
+      ))
+    : -1;
+
+  const note = existingIndex >= 0
+    ? {
+        ...codeNotes[existingIndex],
+        filePath,
+        line,
+        anchorText,
+        text,
+        updatedAt: now,
+      }
+    : {
+        id: randomUUID(),
+        projectRoot: currentProjectRoot,
+        filePath,
+        line,
+        anchorText,
+        text,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+  if (existingIndex >= 0) {
+    codeNotes[existingIndex] = note;
+  } else {
+    codeNotes.push(note);
+  }
+  await saveCodeNotes();
+
+  const { projectRoot: _projectRoot, ...publicNote } = note;
+  return publicNote;
+});
+
+ipcMain.handle('notes:delete', async (_event, rawId) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const id = typeof rawId === 'string' ? rawId.trim() : '';
+  if (!id) {
+    throw new Error('便签 ID 无效。');
+  }
+
+  await ensureCodeNotesLoaded();
+  const before = codeNotes.length;
+  codeNotes = codeNotes.filter((note) => !(
+    note.id === id && note.projectRoot === currentProjectRoot
+  ));
+  if (codeNotes.length !== before) {
+    await saveCodeNotes();
+  }
+  return true;
+});
 
 ipcMain.handle('project:search', async (_event, rawQuery) => {
   if (!currentProjectRoot) {
@@ -1004,6 +1107,67 @@ async function loadProjectRoot(rootPath) {
     projectName: path.basename(rootPath),
     files,
   };
+}
+
+
+function validateProjectFilePath(relativePath) {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+  if (typeof relativePath !== 'string' || !relativePath.trim()) {
+    throw new Error('文件路径无效。');
+  }
+  const normalizedPath = normalizeRelativePath(relativePath);
+  if (!currentProjectFiles.includes(normalizedPath)) {
+    throw new Error('代码便签只能绑定当前项目中的代码文件。');
+  }
+  return normalizedPath;
+}
+
+function codeNotesFilePath() {
+  return path.join(app.getPath('userData'), 'ai-code-tutor', 'code-notes.json');
+}
+
+async function ensureCodeNotesLoaded() {
+  if (codeNotesLoaded) {
+    return;
+  }
+
+  codeNotesLoaded = true;
+  codeNotes = [];
+  try {
+    const raw = await fs.readFile(codeNotesFilePath(), 'utf8');
+    const decoded = JSON.parse(raw);
+    const items = Array.isArray(decoded?.notes) ? decoded.notes : [];
+    codeNotes = items.filter((note) => (
+      note
+      && typeof note.id === 'string'
+      && typeof note.projectRoot === 'string'
+      && typeof note.filePath === 'string'
+      && Number.isInteger(note.line)
+      && note.line > 0
+      && typeof note.text === 'string'
+    )).map((note) => ({
+      id: note.id,
+      projectRoot: path.resolve(note.projectRoot),
+      filePath: normalizeRelativePath(note.filePath),
+      line: note.line,
+      anchorText: typeof note.anchorText === 'string' ? note.anchorText.slice(0, 500) : '',
+      text: note.text.slice(0, 20000),
+      createdAt: typeof note.createdAt === 'string' ? note.createdAt : new Date(0).toISOString(),
+      updatedAt: typeof note.updatedAt === 'string' ? note.updatedAt : new Date(0).toISOString(),
+    }));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to load AI Code Tutor notes:', error);
+    }
+  }
+}
+
+async function saveCodeNotes() {
+  const filePath = codeNotesFilePath();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify({ version: 1, notes: codeNotes }, null, 2), 'utf8');
 }
 
 function validateVoiceState(value) {

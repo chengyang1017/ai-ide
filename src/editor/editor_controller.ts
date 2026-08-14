@@ -14,6 +14,15 @@ interface RuntimeTextModel extends monaco.editor.ITextModel {
   getLineMaxColumn(lineNumber: number): number;
 }
 
+interface RuntimeEditorLayoutInfo {
+  contentLeft: number;
+  contentWidth: number;
+}
+
+interface RuntimeStandaloneEditor {
+  getLayoutInfo(): RuntimeEditorLayoutInfo;
+}
+
 export interface EditorFile {
   path: string;
   language: string;
@@ -213,8 +222,9 @@ export class EditorController {
       return null;
     }
 
+    const runtimeEditor = this.editor as unknown as RuntimeStandaloneEditor;
     const runtimeModel = model as RuntimeTextModel;
-    const layout = this.editor.getLayoutInfo();
+    const layout = runtimeEditor.getLayoutInfo();
     const firstLine = Math.max(1, line - 2);
     const lastLine = Math.min(runtimeModel.getLineCount(), line + 2);
     let furthestVisibleCode = layout.contentLeft;

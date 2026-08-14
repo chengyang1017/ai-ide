@@ -1,6 +1,7 @@
 import type { AiTutorPlan, TutorFocus } from './core/ai_tutor_plan';
 import type { SemanticFocus, SemanticNavigationResult } from './core/semantic_navigation';
 import type { SemanticAiTutorPlan, SemanticTutorMode } from './core/semantic_ai_plan';
+import type { CodeNote } from './notes/code_note_controller';
 
 export interface NativeVoiceInfo {
   id: string;
@@ -50,6 +51,15 @@ declare global {
         path: string;
         bytes: number;
       }>;
+      listCodeNotes(relativePath: string): Promise<CodeNote[]>;
+      upsertCodeNote(note: {
+        id: string;
+        filePath: string;
+        line: number;
+        anchorText: string;
+        text: string;
+      }): Promise<CodeNote>;
+      deleteCodeNote(id: string): Promise<boolean>;
       searchProject(query: string): Promise<Array<{
         path: string;
         line: number;

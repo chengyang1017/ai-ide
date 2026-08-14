@@ -6,6 +6,7 @@ import { buildRelatedCodeMoves } from './project/project_navigator';
 import { buildSemanticTutorRoute } from './project/semantic_navigator';
 import type { SemanticTutorMode } from './core/semantic_ai_plan';
 import { VoiceController } from './voice/voice_controller';
+import { CodeNoteController } from './notes/code_note_controller';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -19,7 +20,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.12 · 工作台整理 + 近身 Tutor + Ctrl+Click 提示</small>
+          <small>Alpha 0.13 · 持久代码便签 + 学习标记</small>
         </div>
       </div>
 
@@ -94,8 +95,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.12</strong>
-          <p>工具栏按项目 / 导航 / AI 教学重新分组；角色回到代码区附近但会避开文字；按住 Ctrl 悬停 Dart 符号时会出现可跳转提示。</p>
+          <strong>Alpha 0.13</strong>
+          <p>代码行旁可以添加持久便签：写理解、TODO、问题都不会改动源码。重启 IDE 后便签仍会跟着项目和文件恢复。</p>
         </div>
       </aside>
 
@@ -104,6 +105,7 @@ app.innerHTML = `
           <span id="editor-tab-dot" class="editor-tab-dot" data-dirty="false"></span>
           <span id="active-file">src/app.ts</span>
           <span id="editor-save-state" class="editor-save-state">✓ 已保存</span>
+          <span class="code-note-hint" title="把光标移到一行，然后点击行号旁的 📝＋">行号旁 📝＋ 添加便签</span>
           <span id="workspace-badge" class="tab-badge">Demo</span>
         </div>
 
@@ -172,6 +174,7 @@ app.innerHTML = `
 `;
 
 const editorElement = requireElement('editor');
+const editorStage = requireElement('editor-stage');
 const characterElement = requireElement('tutor-character');
 const bubbleElement = requireElement('speech-bubble');
 const tutorStatus = requireElement('tutor-status');
@@ -226,6 +229,12 @@ interface RuntimeMonacoEditor {
 }
 
 const editorController = new EditorController(editorElement, demoFiles);
+const codeNoteController = new CodeNoteController(
+  editorController.editor,
+  editorStage,
+  (message) => { tutorStatus.textContent = message; },
+);
+codeNoteController.disable();
 const runtimeEditor = editorController.editor as unknown as RuntimeMonacoEditor;
 let preferredVoiceLanguage = 'zh-CN';
 let preferredVoiceId = '';
@@ -1101,6 +1110,7 @@ function renderTreeNodes(nodes: TreeNode[], container: HTMLElement, depth: numbe
           await openRealProjectFile(node.path, false, true);
         } else {
           editorController.openFile(node.path);
+          codeNoteController.disable();
           updateActiveFile();
           updateFileTreeSelection(true);
         }
@@ -1131,6 +1141,7 @@ async function openRealProjectFile(
     editorController.openFileContent(file);
   }
 
+  await codeNoteController.openFile(file.path);
   updateActiveFile();
   updateFileTreeSelection(revealInTree);
   tutorStatus.textContent = editorController.isDirty()
@@ -1466,5 +1477,6 @@ void initializeApplication();
 
 window.addEventListener('beforeunload', () => {
   voiceController.stop();
+  codeNoteController.dispose();
   editorController.dispose();
 });
