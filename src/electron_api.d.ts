@@ -1,7 +1,7 @@
 import type { AiTutorPlan, TutorFocus } from './core/ai_tutor_plan';
 import type { SemanticFocus, SemanticNavigationResult } from './core/semantic_navigation';
 import type { SemanticAiTutorPlan, SemanticTutorMode } from './core/semantic_ai_plan';
-import type { CodeNote } from './notes/code_note_controller';
+import type { CodeNote, CodeNoteImage } from './notes/code_note_controller';
 
 export interface NativeVoiceInfo {
   id: string;
@@ -18,10 +18,27 @@ export interface PersistedVoiceState {
   rate: number;
 }
 
+
+export interface AppearanceState {
+  color: string;
+  backgroundMode: 'solid' | 'gradient';
+  gradientStart: string;
+  gradientEnd: string;
+  gradientAngle: number;
+  scope: 'editor' | 'all';
+  imageFile: string;
+  imageOpacity: number;
+  overlayOpacity: number;
+  blur: number;
+  fit: 'cover' | 'contain' | 'fill' | 'none';
+  position: 'center' | 'top' | 'bottom' | 'left' | 'right' | 'top left' | 'top right' | 'bottom left' | 'bottom right';
+}
+
 export interface TutorIdeAppState {
   lastProjectRoot: string;
   lastOpenFile: string;
   voice: PersistedVoiceState;
+  appearance: AppearanceState;
   hasOpenAiKey: boolean;
   nativeTts: boolean;
 }
@@ -47,6 +64,12 @@ declare global {
         path: string;
         content: string;
       }>;
+      readProjectAsset(relativePath: string): Promise<{
+        path: string;
+        mimeType: string;
+        dataUrl: string;
+      }>;
+      openExternal(url: string): Promise<boolean>;
       writeProjectFile(relativePath: string, content: string): Promise<{
         path: string;
         bytes: number;
@@ -63,8 +86,18 @@ declare global {
         column: number;
         anchorText: string;
         text: string;
+        images: CodeNoteImage[];
       }): Promise<CodeNote>;
       deleteCodeNote(id: string): Promise<boolean>;
+      importCodeNoteImage(image: {
+        name: string;
+        mimeType: string;
+        dataBase64: string;
+      }): Promise<CodeNoteImage & { dataUrl: string }>;
+      readCodeNoteImage(assetPath: string): Promise<{
+        path: string;
+        dataUrl: string;
+      }>;
       searchProject(query: string): Promise<Array<{
         path: string;
         line: number;
@@ -74,6 +107,14 @@ declare global {
       findDartSemanticTargets(focus: SemanticFocus): Promise<SemanticNavigationResult>;
       getAppState(): Promise<TutorIdeAppState>;
       updateVoiceState(voiceState: PersistedVoiceState): Promise<PersistedVoiceState>;
+      updateAppearanceState(appearance: Partial<AppearanceState>): Promise<AppearanceState>;
+      chooseAppearanceBackground(): Promise<{
+        name: string;
+        dataUrl: string;
+        appearance: AppearanceState;
+      } | null>;
+      getAppearanceBackground(): Promise<{ name: string; dataUrl: string } | null>;
+      clearAppearanceBackground(): Promise<AppearanceState>;
       listNativeVoices(): Promise<NativeVoiceInfo[]>;
       synthesizeSpeech(request: {
         text: string;

@@ -1545,3 +1545,991 @@ button:disabled {
   border-color: #505764;
   color: #aeb6c2;
 }
+
+/* Alpha 0.16：更紧凑的命令区，减少按钮下方空白。 */
+.ide-shell {
+  --appearance-color: #111318;
+  --appearance-background: #111318;
+  --appearance-gradient-start: #171a2d;
+  --appearance-gradient-end: #412f66;
+  --appearance-gradient-angle: 135deg;
+  --appearance-image: none;
+  --appearance-image-opacity: .42;
+  --appearance-overlay-opacity: .56;
+  --appearance-blur: 0px;
+  --appearance-fit: cover;
+  --appearance-position: center;
+  position: relative;
+  isolation: isolate;
+  grid-template-rows: 40px 52px minmax(0, 1fr) 24px;
+  background: var(--appearance-background);
+}
+
+.commandbar {
+  align-items: center;
+  gap: 9px;
+  padding: 5px 11px 6px;
+}
+
+.command-group {
+  min-height: 40px;
+  padding: 10px 0 0;
+  gap: 6px;
+}
+
+.command-group-label {
+  top: 0;
+  left: 2px;
+  line-height: 8px;
+}
+
+.command-group > button,
+.command-group > select {
+  height: 30px;
+  min-height: 30px;
+}
+
+.command-divider {
+  align-self: stretch;
+  margin: 5px 2px 2px;
+}
+
+/* Alpha 0.16：背景颜色 / 图片。 */
+.ide-shell::before,
+.ide-shell::after,
+.editor-stage::before,
+.editor-stage::after,
+.appearance-preview::before,
+.appearance-preview::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.ide-shell[data-background-scope="all"]::before,
+.appearance-preview::before,
+.editor-stage::before {
+  background-image: var(--appearance-image);
+  background-repeat: no-repeat;
+  background-size: var(--appearance-fit);
+  background-position: var(--appearance-position);
+  filter: blur(var(--appearance-blur));
+  opacity: var(--appearance-image-opacity);
+}
+
+.ide-shell[data-background-scope="all"]::after,
+.appearance-preview::after,
+.editor-stage::after {
+  background: rgb(0 0 0 / var(--appearance-overlay-opacity));
+}
+
+.ide-shell[data-background-scope="all"]::before,
+.ide-shell[data-background-scope="all"]::after {
+  z-index: 0;
+  inset: -24px;
+}
+
+.ide-shell[data-background-scope="all"] {
+  background: var(--appearance-background);
+}
+
+/* “整个 IDE”模式要真正让背景色/渐变贯穿界面，而不是只在代码区可见。 */
+.ide-shell[data-background-scope="all"] > * {
+  position: relative;
+  z-index: 1;
+}
+
+.ide-shell[data-background-scope="all"] .titlebar,
+.ide-shell[data-background-scope="all"] .commandbar,
+.ide-shell[data-background-scope="all"] .sidebar,
+.ide-shell[data-background-scope="all"] .editor-tabbar,
+.ide-shell[data-background-scope="all"] .statusbar {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(10 12 18 / 38%);
+  backdrop-filter: blur(10px) saturate(120%);
+}
+
+.ide-shell[data-background-scope="all"] .workspace,
+.ide-shell[data-background-scope="all"] .editor-pane {
+  background: transparent;
+}
+
+.ide-shell[data-background-scope="all"] .sidebar-note,
+.ide-shell[data-background-scope="all"] .file-item[data-active="true"] {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(12 15 21 / 38%);
+  backdrop-filter: blur(7px);
+}
+
+.ide-shell[data-background-scope="all"] .file-item:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.ide-shell[data-background-scope="all"] .command-group > button:not(.primary-button),
+.ide-shell[data-background-scope="all"] .command-group > select,
+.ide-shell[data-background-scope="all"] .titlebar-right > button:not(.primary-button),
+.ide-shell[data-background-scope="all"] .titlebar-right > select,
+.ide-shell[data-background-scope="all"] .toolbar-menu > summary {
+  border-color: rgb(255 255 255 / 12%);
+  background: rgb(16 19 27 / 48%);
+  backdrop-filter: blur(7px);
+}
+
+.ide-shell[data-background-scope="all"] .editor-stage {
+  background: transparent;
+}
+
+.editor-stage {
+  background: var(--appearance-background);
+}
+
+.ide-shell[data-background-scope="editor"] .editor-stage::before,
+.ide-shell[data-background-scope="editor"] .editor-stage::after {
+  inset: -24px;
+  z-index: 0;
+}
+
+.ide-shell[data-background-scope="all"] .editor-stage::before,
+.ide-shell[data-background-scope="all"] .editor-stage::after {
+  display: none;
+}
+
+.ide-shell[data-background-scope="editor"] .editor,
+.ide-shell[data-background-scope="editor"] .markdown-preview,
+.ide-shell[data-background-scope="editor"] .tutor-surface,
+.ide-shell[data-background-scope="all"] .editor,
+.ide-shell[data-background-scope="all"] .markdown-preview,
+.ide-shell[data-background-scope="all"] .tutor-surface {
+  z-index: 2;
+}
+
+.ide-shell[data-background-scope="editor"] .monaco-editor,
+.ide-shell[data-background-scope="editor"] .monaco-editor-background,
+.ide-shell[data-background-scope="editor"] .monaco-editor .margin,
+.ide-shell[data-background-scope="all"] .monaco-editor,
+.ide-shell[data-background-scope="all"] .monaco-editor-background,
+.ide-shell[data-background-scope="all"] .monaco-editor .margin {
+  background-color: transparent !important;
+}
+
+/* 外观设置 */
+.settings-dialog {
+  width: min(760px, 100%);
+  max-height: min(720px, 92vh);
+  overflow: hidden;
+  border: 1px solid #343945;
+  border-radius: 14px;
+  background: #171a20;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 48%);
+}
+
+.settings-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 13px;
+  border-bottom: 1px solid #2c313a;
+}
+
+.settings-dialog-header strong {
+  font-size: 15px;
+}
+
+.settings-dialog-header p {
+  margin: 5px 0 0;
+  color: #848e9d;
+  font-size: 11px;
+}
+
+.appearance-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  max-height: calc(92vh - 72px);
+  overflow: auto;
+  padding: 14px;
+}
+
+.appearance-section {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #2e343e;
+  border-radius: 10px;
+  background: #13171d;
+}
+
+.appearance-section h3 {
+  margin: 0 0 10px;
+  color: #cfd5df;
+  font-size: 11px;
+}
+
+.appearance-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.appearance-section-heading h3 {
+  margin: 0;
+}
+
+.appearance-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid #303743;
+  border-radius: 7px;
+  background: #0f1217;
+}
+
+.appearance-segmented button {
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #7f8998;
+  font-size: 9px;
+}
+
+.appearance-segmented button[data-active="true"] {
+  background: #2b3040;
+  color: #eceaff;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 24%);
+}
+
+.appearance-gradient-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.appearance-gradient-controls[hidden] {
+  display: none !important;
+}
+
+.appearance-gradient-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 42px);
+  gap: 7px;
+}
+
+.appearance-gradient-presets button {
+  width: 42px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid #353b46;
+  border-radius: 8px;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 6%);
+}
+
+.appearance-gradient-presets button[data-active="true"] {
+  border-color: #8878ff;
+  box-shadow: 0 0 0 2px rgb(119 104 233 / 24%);
+}
+
+.appearance-gradient-colors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.appearance-color-field.compact {
+  grid-template-columns: auto 38px minmax(0, 1fr);
+  margin-top: 0;
+}
+
+.appearance-color-field.compact input[type="color"] {
+  width: 38px;
+  height: 26px;
+}
+
+.appearance-controls {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.appearance-presets {
+  display: grid;
+  grid-template-columns: repeat(5, 30px);
+  gap: 7px;
+}
+
+.appearance-presets button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid #353b46;
+  border-radius: 8px;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 5%);
+}
+
+.appearance-presets button[data-active="true"] {
+  border-color: #8878ff;
+  box-shadow: 0 0 0 2px rgb(119 104 233 / 24%);
+}
+
+.appearance-field,
+.appearance-range-field {
+  display: grid;
+  gap: 6px;
+  color: #8993a2;
+  font-size: 10px;
+}
+
+.appearance-color-field {
+  grid-template-columns: auto 42px 1fr;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.appearance-color-field input[type="color"] {
+  width: 42px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid #383f4b;
+  border-radius: 6px;
+  background: #101318;
+}
+
+.appearance-color-field code {
+  color: #aeb6c2;
+  font-size: 10px;
+}
+
+.appearance-field select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #343b47;
+  border-radius: 7px;
+  background: #1a1e25;
+  color: #d2d7df;
+  padding: 0 7px;
+}
+
+.appearance-range-field span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.appearance-range-field output {
+  color: #bbb4ff;
+}
+
+.appearance-range-field input[type="range"] {
+  width: 100%;
+}
+
+.appearance-image-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 9px;
+}
+
+.appearance-image-actions button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+.appearance-image-actions span {
+  min-width: 0;
+  overflow: hidden;
+  color: #707a89;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appearance-preview {
+  --appearance-color: #111318;
+  --appearance-background: #111318;
+  --appearance-gradient-start: #171a2d;
+  --appearance-gradient-end: #412f66;
+  --appearance-gradient-angle: 135deg;
+  --appearance-image: none;
+  --appearance-image-opacity: .42;
+  --appearance-overlay-opacity: .56;
+  --appearance-blur: 0px;
+  --appearance-fit: cover;
+  --appearance-position: center;
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 120px;
+  overflow: hidden;
+  border: 1px solid #343b47;
+  border-radius: 8px;
+  background: var(--appearance-background);
+}
+
+.appearance-preview::before,
+.appearance-preview::after {
+  inset: -18px;
+  z-index: 0;
+}
+
+.appearance-preview span {
+  position: relative;
+  z-index: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgb(13 16 21 / 70%);
+  color: #d9dee7;
+  font-size: 10px;
+}
+
+/* 项目级富媒体代码便签。 */
+.code-note-popover {
+  grid-template-rows: auto minmax(78px, auto) auto auto;
+  max-height: min(440px, calc(100% - 16px));
+}
+
+.code-note-popover[data-dragging-image="true"] {
+  outline: 2px dashed #7d6df0;
+  outline-offset: -5px;
+}
+
+.code-note-textarea {
+  min-height: 84px;
+  max-height: 165px;
+}
+
+.code-note-media {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 35px;
+  padding: 6px 8px;
+  border-top: 1px solid #2a3039;
+  background: #171b22;
+}
+
+.code-note-images {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  max-width: 176px;
+  overflow-x: auto;
+  padding: 1px 0;
+}
+
+.code-note-images[hidden] {
+  display: none;
+}
+
+.code-note-image-card {
+  position: relative;
+  flex: 0 0 54px;
+  width: 54px;
+  height: 42px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #0e1116;
+}
+
+.code-note-image-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: zoom-in;
+}
+
+.code-note-image-card[data-broken="true"] img {
+  padding: 5px;
+  color: #ad7580;
+  font-size: 8px;
+}
+
+.code-note-image-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(12 14 18 / 82%);
+  color: #f0c6cb;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.code-note-add-image {
+  flex: 0 0 auto;
+  min-height: 25px;
+  padding: 3px 7px;
+  border-color: #3c4655;
+  background: #1f252e;
+  color: #bcc5d2;
+  font-size: 9px;
+}
+
+.code-note-media-hint {
+  margin-left: auto;
+  color: #667181;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.code-note-image-lightbox {
+  position: absolute;
+  inset: 18px;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgb(6 8 12 / 86%);
+  backdrop-filter: blur(5px);
+}
+
+.code-note-image-lightbox[hidden] {
+  display: none;
+}
+
+.code-note-image-lightbox img {
+  max-width: 92%;
+  max-height: 92%;
+  border-radius: 8px;
+  box-shadow: 0 20px 70px rgb(0 0 0 / 60%);
+}
+
+.code-note-image-lightbox button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 18px;
+}
+
+/* Markdown 编辑 / 分栏 / 预览。 */
+.markdown-mode-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px;
+  border: 1px solid #303744;
+  border-radius: 7px;
+  background: #11151b;
+  font-family: Inter, "Segoe UI", sans-serif;
+}
+
+.markdown-mode-controls[hidden] {
+  display: none;
+}
+
+.markdown-mode-controls button {
+  min-height: 22px;
+  padding: 2px 7px;
+  border-color: transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #7f8998;
+  font-size: 9px;
+}
+
+.markdown-mode-controls button[data-active="true"] {
+  background: #2b3140;
+  color: #e4e8ef;
+}
+
+.editor-stage[data-markdown-mode="split"] .editor {
+  right: 50%;
+  border-right: 1px solid #303641;
+}
+
+.markdown-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: auto;
+  padding: 34px clamp(26px, 5vw, 72px) 80px;
+  background: rgb(17 19 24 / 72%);
+  color: #dce1e8;
+  font: 14px/1.72 Inter, "Segoe UI", sans-serif;
+  backdrop-filter: blur(2px);
+}
+
+.editor-stage[data-markdown-mode="split"] .markdown-preview {
+  left: 50%;
+  padding: 28px 34px 70px;
+}
+
+.editor-stage[data-markdown-mode="preview"] .markdown-preview {
+  left: 0;
+}
+
+.markdown-preview[hidden] {
+  display: none;
+}
+
+.markdown-preview > :first-child {
+  margin-top: 0;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  scroll-margin-top: 18px;
+  color: #f0f3f7;
+  line-height: 1.25;
+}
+
+.markdown-preview h1 {
+  margin: 0 0 22px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #333a46;
+  font-size: 30px;
+}
+
+.markdown-preview h2 {
+  margin-top: 30px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #2d343f;
+  font-size: 22px;
+}
+
+.markdown-preview h3 { font-size: 18px; }
+.markdown-preview h4 { font-size: 15px; }
+.markdown-preview p { margin: 12px 0; }
+.markdown-preview strong { color: #f5f7fa; }
+.markdown-preview del { color: #848e9c; }
+
+.markdown-preview a {
+  color: #62b8ff;
+  text-decoration: none;
+}
+
+.markdown-preview a:hover {
+  text-decoration: underline;
+}
+
+.markdown-preview code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgb(48 55 67 / 72%);
+  color: #f0c879;
+  font: .9em "Cascadia Code", Consolas, monospace;
+}
+
+.markdown-preview pre {
+  overflow: auto;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid #303744;
+  border-radius: 9px;
+  background: rgb(12 15 20 / 86%);
+}
+
+.markdown-preview pre code {
+  padding: 0;
+  background: transparent;
+  color: #dbe3ed;
+  font-size: 12px;
+  white-space: pre;
+}
+
+.markdown-preview blockquote {
+  margin: 16px 0;
+  padding: 2px 14px;
+  border-left: 3px solid #6656db;
+  color: #aeb7c4;
+  background: rgb(49 43 83 / 20%);
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  padding-left: 26px;
+}
+
+.markdown-preview .task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-left: -22px;
+  list-style: none;
+}
+
+.markdown-preview .task-list-item input {
+  margin-top: 6px;
+}
+
+.markdown-preview hr {
+  margin: 28px 0;
+  border: 0;
+  border-top: 1px solid #343b47;
+}
+
+.markdown-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 560px;
+  margin: 16px auto;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.markdown-preview img[data-broken="true"] {
+  min-height: 54px;
+  border: 1px dashed #744a53;
+  background: #24181c;
+}
+
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  padding: 7px 9px;
+  border: 1px solid #353c48;
+  text-align: left;
+}
+
+.markdown-preview th {
+  background: #1d222a;
+  color: #e7eaf0;
+}
+
+@media (max-width: 900px) {
+  .appearance-body {
+    grid-template-columns: 1fr;
+  }
+
+  .appearance-controls {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .editor-stage[data-markdown-mode="split"] .editor {
+    right: 0;
+    bottom: 50%;
+    border-right: 0;
+    border-bottom: 1px solid #303641;
+  }
+
+  .editor-stage[data-markdown-mode="split"] .markdown-preview {
+    top: 50%;
+    left: 0;
+  }
+}
+
+/* 没有图片时只显示用户选择的纯色，不额外套暗色遮罩。 */
+.ide-shell[data-has-background-image="false"]::before,
+.ide-shell[data-has-background-image="false"]::after,
+.ide-shell[data-has-background-image="false"] .editor-stage::before,
+.ide-shell[data-has-background-image="false"] .editor-stage::after,
+.appearance-preview[data-has-background-image="false"]::before,
+.appearance-preview[data-has-background-image="false"]::after {
+  display: none;
+}
+
+.editor-tabbar .markdown-mode-controls:not([hidden]) + .tab-badge {
+  margin-left: 6px;
+}
+
+/* Alpha 0.16 appearance hotfix 2：浮层层级、固定外观窗口、背景自适应代码可读性。 */
+.titlebar {
+  position: relative;
+  z-index: 300;
+  overflow: visible;
+}
+
+.titlebar-right,
+.toolbar-menu {
+  overflow: visible;
+}
+
+.toolbar-menu[open] {
+  z-index: 520;
+}
+
+.toolbar-menu-panel,
+.voice-settings-panel {
+  z-index: 540;
+  pointer-events: auto;
+}
+
+.commandbar {
+  position: relative;
+  z-index: 20;
+}
+
+.workspace {
+  position: relative;
+  z-index: 1;
+}
+
+/* “整个 IDE”模式原有的通用 z-index 不能把语音设置重新压回命令栏后面。 */
+.ide-shell[data-background-scope="all"] > .titlebar {
+  z-index: 300;
+}
+
+.ide-shell[data-background-scope="all"] > .commandbar {
+  z-index: 20;
+}
+
+/* 外观窗口固定尺寸。切换纯色 / 渐变只替换内部控件，不再让整个对话框跳动。 */
+.appearance-dialog {
+  width: min(960px, calc(100vw - 48px));
+  height: min(580px, calc(100vh - 48px));
+  min-height: min(580px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.appearance-dialog .appearance-body {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  align-content: start;
+}
+
+.appearance-background-section,
+.appearance-dialog .appearance-section:nth-child(2) {
+  min-height: 258px;
+}
+
+/* 浅色背景时，代码内便签和 Ctrl+Click 也跟着提高对比度。 */
+.ide-shell[data-syntax-tone="light"] .monaco-editor .code-note-injected-existing {
+  background: rgb(51 65 85 / 18%);
+  color: #243044 !important;
+}
+
+.ide-shell[data-syntax-tone="light"] .monaco-editor .code-note-injected-add {
+  background: rgb(109 40 217 / 13%);
+  color: #6d28d9 !important;
+}
+
+.ide-shell[data-syntax-tone="light"] .monaco-editor .ctrl-click-link {
+  color: #005fb8 !important;
+  text-decoration-color: #005fb8 !important;
+}
+
+@media (max-width: 900px) {
+  .appearance-dialog {
+    width: calc(100vw - 28px);
+    height: calc(100vh - 28px);
+    min-height: 0;
+  }
+
+  .appearance-background-section,
+  .appearance-dialog .appearance-section:nth-child(2) {
+    min-height: 0;
+  }
+}
+
+
+/* Alpha 0.16 hotfix 3：系统顶栏融入 IDE 外观，Monaco 最右侧也透出背景。 */
+.titlebar {
+  /* Windows titleBarOverlay 的窗口按钮会覆盖网页右上角，预留系统按钮宽度。 */
+  padding-right: 152px;
+  -webkit-app-region: drag;
+}
+
+.titlebar button,
+.titlebar select,
+.titlebar details,
+.titlebar summary,
+.titlebar .toolbar-menu-panel,
+.titlebar .voice-settings-panel {
+  -webkit-app-region: no-drag;
+}
+
+/* 整个 IDE 主题下，最上面的自定义标题栏也使用更轻的玻璃层，避免再次变成一条死黑色。 */
+.ide-shell[data-background-scope="all"] > .titlebar {
+  background: rgb(10 12 18 / 30%);
+  box-shadow: inset 0 -1px rgb(255 255 255 / 7%);
+}
+
+/* Monaco 的 minimap / overview ruler / 垂直滚动区默认仍会绘制主题背景，
+   在渐变或壁纸下就会形成截图里的黑色竖条。 */
+.ide-shell[data-background-scope="editor"] .monaco-editor .minimap,
+.ide-shell[data-background-scope="editor"] .monaco-editor .decorationsOverviewRuler,
+.ide-shell[data-background-scope="editor"] .monaco-editor .scrollbar.vertical,
+.ide-shell[data-background-scope="all"] .monaco-editor .minimap,
+.ide-shell[data-background-scope="all"] .monaco-editor .decorationsOverviewRuler,
+.ide-shell[data-background-scope="all"] .monaco-editor .scrollbar.vertical {
+  background-color: transparent !important;
+}
+
+/* Minimap 回归正常源码预览，不再拉伸成整高“条形码”。
+   这里只保留很轻的玻璃底，让壁纸/渐变下仍能看清字符。 */
+.ide-shell[data-syntax-tone="dark"] .monaco-editor .minimap {
+  background-color: rgb(8 11 18 / 14%) !important;
+  box-shadow: inset 1px 0 rgb(255 255 255 / 5%);
+}
+
+.ide-shell[data-syntax-tone="light"] .monaco-editor .minimap {
+  background-color: rgb(255 255 255 / 14%) !important;
+  box-shadow: inset 1px 0 rgb(15 23 42 / 8%);
+}
+
+.monaco-editor .minimap canvas {
+  opacity: 1;
+}
+
+@media (max-width: 1180px) {
+  .titlebar {
+    padding-right: 144px;
+  }
+
+  .titlebar-right .tutor-status {
+    max-width: 220px;
+  }
+}
+
+
+/* Alpha 0.16 editor correctness hotfix：Sticky Scroll 与代码便签都必须是“视图层”，
+   但不能制造正文穿透或假的可编辑光标位置。
+   Sticky Scroll 的底色由 AppearanceState 动态提供：视觉上跟随纯色/渐变主题，
+   同时保持不透明，避免正文从下面穿透。 */
+.monaco-editor .sticky-widget,
+.monaco-editor .sticky-widget .sticky-widget-lines-scrollable {
+  background: var(--sticky-scroll-background, #171a22) !important;
+}
+
+/* Monaco 的内部行节点可能自己带 editorStickyScroll.background。让它们透明，
+   统一露出上面的主题化 Sticky surface，避免出现黑色条块。 */
+.monaco-editor .sticky-widget .sticky-line-content,
+.monaco-editor .sticky-widget .sticky-line-number {
+  background: transparent !important;
+}
+
+.monaco-editor .sticky-widget {
+  border-bottom: 1px solid var(--sticky-scroll-border, rgb(255 255 255 / 14%));
+  box-shadow: 0 6px 14px var(--sticky-scroll-shadow, rgb(0 0 0 / 40%));
+}

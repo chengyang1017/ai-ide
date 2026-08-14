@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
 const fs = require('node:fs/promises');
 const { watch } = require('node:fs');
 const path = require('node:path');
@@ -8,6 +8,7 @@ const { WindowsTtsBridge } = require('./windows_tts.cjs');
 
 const IGNORED_DIRECTORIES = new Set([
   '.git',
+  '.ai-code-tutor',
   'node_modules',
   'dist',
   'build',
@@ -29,6 +30,17 @@ const TEXT_EXTENSIONS = new Set([
 
 const MAX_PROJECT_FILES = 5000;
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_FILE_BYTES = 12 * 1024 * 1024;
+const MAX_NOTE_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_MIME_BY_EXTENSION = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.webp', 'image/webp'],
+  ['.bmp', 'image/bmp'],
+  ['.avif', 'image/avif'],
+]);
 
 let currentProjectRoot = null;
 let currentProjectFiles = [];
@@ -39,7 +51,7 @@ const projectFileWatchers = new Map();
 const internalWriteSuppressUntil = new Map();
 
 const DEFAULT_APP_STATE = {
-  version: 1,
+  version: 2,
   lastProjectRoot: '',
   lastOpenFile: '',
   voice: {
@@ -48,12 +60,24 @@ const DEFAULT_APP_STATE = {
     voiceId: '',
     rate: 1,
   },
+  appearance: {
+    color: '#111318',
+    backgroundMode: 'solid',
+    gradientStart: '#171a2d',
+    gradientEnd: '#412f66',
+    gradientAngle: 135,
+    scope: 'editor',
+    imageFile: '',
+    imageOpacity: 0.42,
+    overlayOpacity: 0.56,
+    blur: 0,
+    fit: 'cover',
+    position: 'center',
+  },
   encryptedOpenAiKey: '',
 };
 
 let persistentState = structuredClone(DEFAULT_APP_STATE);
-let codeNotesLoaded = false;
-let codeNotes = [];
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || 'gpt-5.2';
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -63,13 +87,25 @@ const MAX_SEMANTIC_AI_NODES = 24;
 const SEMANTIC_AI_CONTEXT_RADIUS = 4;
 
 function createWindow() {
+  const chrome = appearanceChromeColors(persistentState.appearance);
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 980,
     minHeight: 640,
-    backgroundColor: '#111318',
+    backgroundColor: chrome.backgroundColor,
     title: 'AI Code Tutor IDE',
+    autoHideMenuBar: true,
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: {
+            color: chrome.titleBarColor,
+            symbolColor: chrome.symbolColor,
+            height: 36,
+          },
+        }
+      : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -77,6 +113,9 @@ function createWindow() {
       sandbox: true,
     },
   });
+
+  // Windows 原生菜单栏会保持系统浅色，和自定义外观割裂。默认隐藏；Alt 仍可临时调出菜单。
+  window.setMenuBarVisibility(false);
 
   window.webContents.on('destroyed', () => {
     closeProjectFileWatcher(window.webContents.id);
@@ -186,6 +225,38 @@ ipcMain.handle('project:unwatch-file', (event) => {
   return true;
 });
 
+ipcMain.handle('project:read-asset', async (_event, relativePath) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const normalizedPath = normalizeRelativePath(typeof relativePath === 'string' ? relativePath : '');
+  const targetPath = resolveInsideProject(currentProjectRoot, normalizedPath);
+  const mimeType = normalizeImageMimeType('', targetPath);
+  const stat = await fs.stat(targetPath);
+  if (!stat.isFile()) {
+    throw new Error('图片资源不存在。');
+  }
+  if (stat.size > MAX_IMAGE_FILE_BYTES) {
+    throw new Error('图片资源超过 12 MB。');
+  }
+  const bytes = await fs.readFile(targetPath);
+  return {
+    path: normalizedPath,
+    mimeType,
+    dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+  };
+});
+
+ipcMain.handle('project:open-external', async (_event, rawUrl) => {
+  const url = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('只允许打开 http/https 外部链接。');
+  }
+  await shell.openExternal(url);
+  return true;
+});
+
 ipcMain.handle('project:read-file', async (_event, relativePath) => {
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
@@ -271,10 +342,9 @@ ipcMain.handle('notes:list', async (_event, relativePath) => {
   }
 
   const filePath = validateProjectFilePath(relativePath);
-  await ensureCodeNotesLoaded();
-  return codeNotes
-    .filter((note) => note.projectRoot === currentProjectRoot && note.filePath === filePath)
-    .map(({ projectRoot: _projectRoot, ...note }) => ({ ...note }))
+  const notes = await loadProjectCodeNotes();
+  return notes
+    .filter((note) => note.filePath === filePath)
     .sort((a, b) => a.line - b.line || a.column - b.column || a.createdAt.localeCompare(b.createdAt));
 });
 
@@ -286,11 +356,13 @@ ipcMain.handle('notes:upsert', async (_event, rawNote) => {
   const input = rawNote && typeof rawNote === 'object' ? rawNote : {};
   const filePath = validateProjectFilePath(input.filePath);
   const text = typeof input.text === 'string' ? input.text.trim() : '';
-  if (!text) {
-    throw new Error('便签内容不能为空。');
-  }
   if (text.length > 20000) {
     throw new Error('单个代码便签最多 20000 个字符。');
+  }
+
+  const images = sanitizeNoteImages(input.images);
+  if (!text && images.length === 0) {
+    throw new Error('便签至少需要文字或图片。');
   }
 
   const placement = input.placement === 'inline' ? 'inline' : 'gutter';
@@ -307,49 +379,45 @@ ipcMain.handle('notes:upsert', async (_event, rawNote) => {
     ? input.anchorText.trim().slice(0, 500)
     : '';
   const requestedId = typeof input.id === 'string' ? input.id.trim() : '';
-  await ensureCodeNotesLoaded();
+  const notes = await loadProjectCodeNotes();
 
   const now = new Date().toISOString();
   const existingIndex = requestedId
-    ? codeNotes.findIndex((note) => (
-        note.id === requestedId
-        && note.projectRoot === currentProjectRoot
-      ))
+    ? notes.findIndex((note) => note.id === requestedId)
     : -1;
 
   const note = existingIndex >= 0
     ? {
-        ...codeNotes[existingIndex],
+        ...notes[existingIndex],
         filePath,
         placement,
         line,
         column,
         anchorText,
         text,
+        images,
         updatedAt: now,
       }
     : {
         id: randomUUID(),
-        projectRoot: currentProjectRoot,
         filePath,
         placement,
         line,
         column,
         anchorText,
         text,
+        images,
         createdAt: now,
         updatedAt: now,
       };
 
   if (existingIndex >= 0) {
-    codeNotes[existingIndex] = note;
+    notes[existingIndex] = note;
   } else {
-    codeNotes.push(note);
+    notes.push(note);
   }
-  await saveCodeNotes();
-
-  const { projectRoot: _projectRoot, ...publicNote } = note;
-  return publicNote;
+  await saveProjectCodeNotes(notes);
+  return note;
 });
 
 ipcMain.handle('notes:delete', async (_event, rawId) => {
@@ -362,15 +430,66 @@ ipcMain.handle('notes:delete', async (_event, rawId) => {
     throw new Error('便签 ID 无效。');
   }
 
-  await ensureCodeNotesLoaded();
-  const before = codeNotes.length;
-  codeNotes = codeNotes.filter((note) => !(
-    note.id === id && note.projectRoot === currentProjectRoot
-  ));
-  if (codeNotes.length !== before) {
-    await saveCodeNotes();
+  const notes = await loadProjectCodeNotes();
+  const nextNotes = notes.filter((note) => note.id !== id);
+  if (nextNotes.length !== notes.length) {
+    await saveProjectCodeNotes(nextNotes);
   }
   return true;
+});
+
+ipcMain.handle('notes:import-image', async (_event, rawImage) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const input = rawImage && typeof rawImage === 'object' ? rawImage : {};
+  const name = typeof input.name === 'string' ? input.name.trim().slice(0, 160) : 'note-image';
+  const mimeType = normalizeImageMimeType(input.mimeType, name);
+  const base64 = typeof input.dataBase64 === 'string' ? input.dataBase64 : '';
+  if (!base64) {
+    throw new Error('图片内容为空。');
+  }
+
+  const bytes = Buffer.from(base64, 'base64');
+  if (bytes.length === 0 || bytes.length > MAX_NOTE_IMAGE_BYTES) {
+    throw new Error('便签图片需要小于 8 MB。');
+  }
+
+  const extension = imageExtensionForMime(mimeType, name);
+  const assetRelativePath = `assets/${randomUUID()}${extension}`;
+  const targetPath = resolveInsideNotesDirectory(assetRelativePath);
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await fs.writeFile(targetPath, bytes);
+
+  const createdAt = new Date().toISOString();
+  return {
+    id: randomUUID(),
+    path: assetRelativePath,
+    name: name || `image${extension}`,
+    mimeType,
+    createdAt,
+    dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+  };
+});
+
+ipcMain.handle('notes:read-image', async (_event, rawAssetPath) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const assetPath = validateNoteAssetPath(rawAssetPath);
+  const targetPath = resolveInsideNotesDirectory(assetPath);
+  const stat = await fs.stat(targetPath);
+  if (!stat.isFile() || stat.size > MAX_IMAGE_FILE_BYTES) {
+    throw new Error('便签图片不存在或过大。');
+  }
+  const bytes = await fs.readFile(targetPath);
+  const mimeType = normalizeImageMimeType('', targetPath);
+  return {
+    path: assetPath,
+    dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+  };
 });
 
 ipcMain.handle('project:search', async (_event, rawQuery) => {
@@ -438,6 +557,7 @@ ipcMain.handle('app:get-state', () => ({
   lastProjectRoot: persistentState.lastProjectRoot,
   lastOpenFile: persistentState.lastOpenFile,
   voice: { ...persistentState.voice },
+  appearance: { ...persistentState.appearance },
   hasOpenAiKey: runtimeOpenAiKey.length > 0,
   nativeTts: windowsTts.isSupported(),
 }));
@@ -446,6 +566,102 @@ ipcMain.handle('app:update-voice-state', async (_event, rawVoiceState) => {
   persistentState.voice = validateVoiceState(rawVoiceState);
   await savePersistentState();
   return { ...persistentState.voice };
+});
+
+ipcMain.handle('app:update-appearance-state', async (event, rawAppearance) => {
+  persistentState.appearance = validateAppearanceState({
+    ...persistentState.appearance,
+    ...(rawAppearance && typeof rawAppearance === 'object' ? rawAppearance : {}),
+  });
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (window) {
+    applyWindowChrome(window, persistentState.appearance);
+  }
+  await savePersistentState();
+  return { ...persistentState.appearance };
+});
+
+ipcMain.handle('appearance:choose-background', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '选择 IDE 背景图片',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] },
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const sourcePath = result.filePaths[0];
+  const stat = await fs.stat(sourcePath);
+  if (!stat.isFile() || stat.size > MAX_IMAGE_FILE_BYTES) {
+    throw new Error('背景图片需要小于 12 MB。');
+  }
+
+  const mimeType = normalizeImageMimeType('', sourcePath);
+  const extension = imageExtensionForMime(mimeType, sourcePath);
+  const appearanceDirectory = path.join(app.getPath('userData'), 'ai-code-tutor', 'appearance');
+  const targetName = `background${extension}`;
+  const targetPath = path.join(appearanceDirectory, targetName);
+  await fs.mkdir(appearanceDirectory, { recursive: true });
+
+  for (const fileName of ['background.png', 'background.jpg', 'background.webp', 'background.gif', 'background.bmp', 'background.avif']) {
+    if (fileName !== targetName) {
+      await fs.rm(path.join(appearanceDirectory, fileName), { force: true }).catch(() => {});
+    }
+  }
+
+  await fs.copyFile(sourcePath, targetPath);
+  persistentState.appearance = validateAppearanceState({
+    ...persistentState.appearance,
+    imageFile: targetName,
+  });
+  await savePersistentState();
+
+  const bytes = await fs.readFile(targetPath);
+  return {
+    name: path.basename(sourcePath),
+    dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+    appearance: { ...persistentState.appearance },
+  };
+});
+
+ipcMain.handle('appearance:get-background', async () => {
+  const imageFile = persistentState.appearance?.imageFile || '';
+  if (!imageFile) {
+    return null;
+  }
+  const targetPath = path.join(app.getPath('userData'), 'ai-code-tutor', 'appearance', path.basename(imageFile));
+  try {
+    const stat = await fs.stat(targetPath);
+    if (!stat.isFile() || stat.size > MAX_IMAGE_FILE_BYTES) {
+      return null;
+    }
+    const mimeType = normalizeImageMimeType('', targetPath);
+    const bytes = await fs.readFile(targetPath);
+    return {
+      name: path.basename(targetPath),
+      dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+    };
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('appearance:clear-background', async () => {
+  const imageFile = persistentState.appearance?.imageFile || '';
+  if (imageFile) {
+    const targetPath = path.join(app.getPath('userData'), 'ai-code-tutor', 'appearance', path.basename(imageFile));
+    await fs.rm(targetPath, { force: true }).catch(() => {});
+  }
+  persistentState.appearance = validateAppearanceState({
+    ...persistentState.appearance,
+    imageFile: '',
+  });
+  await savePersistentState();
+  return { ...persistentState.appearance };
 });
 
 ipcMain.handle('voice:list', async () => windowsTts.listVoices());
@@ -1218,52 +1434,273 @@ function validateProjectFilePath(relativePath) {
   return normalizedPath;
 }
 
-function codeNotesFilePath() {
+function legacyCodeNotesFilePath() {
   return path.join(app.getPath('userData'), 'ai-code-tutor', 'code-notes.json');
 }
 
-async function ensureCodeNotesLoaded() {
-  if (codeNotesLoaded) {
-    return;
+function projectNotesDirectory() {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+  return path.join(currentProjectRoot, '.ai-code-tutor');
+}
+
+function projectCodeNotesFilePath() {
+  return path.join(projectNotesDirectory(), 'notes.json');
+}
+
+function resolveInsideNotesDirectory(relativePath) {
+  const root = projectNotesDirectory();
+  const target = path.resolve(root, relativePath);
+  const relative = path.relative(root, target);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('便签资源路径无效。');
+  }
+  return target;
+}
+
+function validateNoteAssetPath(value) {
+  const normalized = normalizeRelativePath(typeof value === 'string' ? value.trim() : '');
+  if (!normalized || !normalized.startsWith('assets/')) {
+    throw new Error('便签图片路径无效。');
+  }
+  return normalized;
+}
+
+function sanitizeNoteImages(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.slice(0, 12).flatMap((image) => {
+    if (!image || typeof image !== 'object') {
+      return [];
+    }
+    try {
+      const assetPath = validateNoteAssetPath(image.path);
+      return [{
+        id: typeof image.id === 'string' && image.id.trim() ? image.id.trim() : randomUUID(),
+        path: assetPath,
+        name: typeof image.name === 'string' ? image.name.trim().slice(0, 160) : path.basename(assetPath),
+        mimeType: normalizeImageMimeType(image.mimeType, assetPath),
+        createdAt: typeof image.createdAt === 'string' ? image.createdAt : new Date().toISOString(),
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function sanitizeProjectCodeNotes(decoded) {
+  const items = Array.isArray(decoded?.notes) ? decoded.notes : [];
+  return items.filter((note) => (
+    note
+    && typeof note.id === 'string'
+    && typeof note.filePath === 'string'
+    && Number.isInteger(note.line)
+    && note.line > 0
+    && typeof note.text === 'string'
+  )).map((note) => ({
+    id: note.id,
+    filePath: normalizeRelativePath(note.filePath),
+    placement: note.placement === 'inline' ? 'inline' : 'gutter',
+    line: note.line,
+    column: note.placement === 'inline' && Number.isInteger(note.column) && note.column > 0 ? note.column : 1,
+    anchorText: typeof note.anchorText === 'string' ? note.anchorText.slice(0, 500) : '',
+    text: note.text.slice(0, 20000),
+    images: sanitizeNoteImages(note.images),
+    createdAt: typeof note.createdAt === 'string' ? note.createdAt : new Date(0).toISOString(),
+    updatedAt: typeof note.updatedAt === 'string' ? note.updatedAt : new Date(0).toISOString(),
+  }));
+}
+
+async function loadProjectCodeNotes() {
+  if (!currentProjectRoot) {
+    return [];
   }
 
-  codeNotesLoaded = true;
-  codeNotes = [];
+  let notes = [];
   try {
-    const raw = await fs.readFile(codeNotesFilePath(), 'utf8');
-    const decoded = JSON.parse(raw);
-    const items = Array.isArray(decoded?.notes) ? decoded.notes : [];
-    codeNotes = items.filter((note) => (
-      note
-      && typeof note.id === 'string'
-      && typeof note.projectRoot === 'string'
-      && typeof note.filePath === 'string'
-      && Number.isInteger(note.line)
-      && note.line > 0
-      && typeof note.text === 'string'
-    )).map((note) => ({
-      id: note.id,
-      projectRoot: path.resolve(note.projectRoot),
-      filePath: normalizeRelativePath(note.filePath),
-      placement: note.placement === 'inline' ? 'inline' : 'gutter',
-      line: note.line,
-      column: note.placement === 'inline' && Number.isInteger(note.column) && note.column > 0 ? note.column : 1,
-      anchorText: typeof note.anchorText === 'string' ? note.anchorText.slice(0, 500) : '',
-      text: note.text.slice(0, 20000),
-      createdAt: typeof note.createdAt === 'string' ? note.createdAt : new Date(0).toISOString(),
-      updatedAt: typeof note.updatedAt === 'string' ? note.updatedAt : new Date(0).toISOString(),
-    }));
+    const raw = await fs.readFile(projectCodeNotesFilePath(), 'utf8');
+    notes = sanitizeProjectCodeNotes(JSON.parse(raw));
   } catch (error) {
     if (error?.code !== 'ENOENT') {
-      console.warn('Failed to load AI Code Tutor notes:', error);
+      console.warn('Failed to load project AI Code Tutor notes:', error);
+    }
+  }
+
+  const migrated = await migrateLegacyCodeNotes(notes);
+  if (migrated.changed) {
+    await saveProjectCodeNotes(migrated.notes);
+    await removeMigratedLegacyCodeNotes(migrated.migratedIds);
+  }
+  return migrated.notes;
+}
+
+async function migrateLegacyCodeNotes(projectNotes) {
+  if (!currentProjectRoot) {
+    return { notes: projectNotes, changed: false, migratedIds: [] };
+  }
+
+  try {
+    const raw = await fs.readFile(legacyCodeNotesFilePath(), 'utf8');
+    const decoded = JSON.parse(raw);
+    const legacyItems = Array.isArray(decoded?.notes) ? decoded.notes : [];
+    const existingIds = new Set(projectNotes.map((note) => note.id));
+    let changed = false;
+    const migratedIds = [];
+    const next = [...projectNotes];
+
+    for (const note of legacyItems) {
+      if (
+        !note
+        || typeof note.id !== 'string'
+        || typeof note.projectRoot !== 'string'
+        || path.resolve(note.projectRoot) !== currentProjectRoot
+        || existingIds.has(note.id)
+      ) {
+        continue;
+      }
+
+      const migrated = sanitizeProjectCodeNotes({ notes: [{ ...note, images: [] }] })[0];
+      if (!migrated) {
+        continue;
+      }
+      next.push(migrated);
+      existingIds.add(migrated.id);
+      migratedIds.push(migrated.id);
+      changed = true;
+    }
+
+    return { notes: next, changed, migratedIds };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to migrate legacy AI Code Tutor notes:', error);
+    }
+    return { notes: projectNotes, changed: false, migratedIds: [] };
+  }
+}
+
+async function removeMigratedLegacyCodeNotes(migratedIds) {
+  if (!currentProjectRoot || !Array.isArray(migratedIds) || migratedIds.length === 0) {
+    return;
+  }
+  try {
+    const filePath = legacyCodeNotesFilePath();
+    const raw = await fs.readFile(filePath, 'utf8');
+    const decoded = JSON.parse(raw);
+    const items = Array.isArray(decoded?.notes) ? decoded.notes : [];
+    const migrated = new Set(migratedIds);
+    const next = items.filter((note) => !(
+      note
+      && typeof note.id === 'string'
+      && migrated.has(note.id)
+      && typeof note.projectRoot === 'string'
+      && path.resolve(note.projectRoot) === currentProjectRoot
+    ));
+    if (next.length !== items.length) {
+      await fs.writeFile(filePath, JSON.stringify({ ...decoded, notes: next }, null, 2), 'utf8');
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to clean migrated legacy AI Code Tutor notes:', error);
     }
   }
 }
 
-async function saveCodeNotes() {
-  const filePath = codeNotesFilePath();
+async function saveProjectCodeNotes(notes) {
+  const filePath = projectCodeNotesFilePath();
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify({ version: 2, notes: codeNotes }, null, 2), 'utf8');
+  await fs.writeFile(filePath, JSON.stringify({ version: 3, notes }, null, 2), 'utf8');
+  await cleanupOrphanNoteAssets(notes);
+}
+
+async function cleanupOrphanNoteAssets(notes) {
+  const assetsDirectory = path.join(projectNotesDirectory(), 'assets');
+  let entries;
+  try {
+    entries = await fs.readdir(assetsDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to inspect code note assets:', error);
+    }
+    return;
+  }
+
+  const used = new Set(notes.flatMap((note) => (note.images ?? []).map((image) => normalizeRelativePath(image.path))));
+  await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
+    const relative = `assets/${entry.name}`;
+    if (!used.has(relative)) {
+      await fs.rm(path.join(assetsDirectory, entry.name), { force: true }).catch(() => {});
+    }
+  }));
+}
+
+function normalizeImageMimeType(rawMimeType, fileName) {
+  const mimeType = typeof rawMimeType === 'string' ? rawMimeType.trim().toLowerCase() : '';
+  if (mimeType && Array.from(IMAGE_MIME_BY_EXTENSION.values()).includes(mimeType)) {
+    return mimeType;
+  }
+  const extension = path.extname(String(fileName || '')).toLowerCase();
+  const inferred = IMAGE_MIME_BY_EXTENSION.get(extension);
+  if (!inferred) {
+    throw new Error('只支持 PNG、JPG、WEBP、GIF、BMP、AVIF 图片。');
+  }
+  return inferred;
+}
+
+function imageExtensionForMime(mimeType, fileName) {
+  const original = path.extname(String(fileName || '')).toLowerCase();
+  if (IMAGE_MIME_BY_EXTENSION.get(original) === mimeType) {
+    return original === '.jpeg' ? '.jpg' : original;
+  }
+  for (const [extension, value] of IMAGE_MIME_BY_EXTENSION) {
+    if (value === mimeType) {
+      return extension === '.jpeg' ? '.jpg' : extension;
+    }
+  }
+  return '.png';
+}
+
+function validateAppearanceState(value) {
+  const input = value && typeof value === 'object' ? value : {};
+  const normalizeUnit = (raw, fallback) => {
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : fallback;
+  };
+  const blur = Number(input.blur);
+  const normalizeHexColor = (raw, fallback) => (
+    typeof raw === 'string' && /^#[0-9a-f]{6}$/i.test(raw.trim())
+      ? raw.trim()
+      : fallback
+  );
+  const color = normalizeHexColor(input.color, '#111318');
+  const backgroundMode = input.backgroundMode === 'gradient' ? 'gradient' : 'solid';
+  const gradientStart = normalizeHexColor(input.gradientStart, '#171a2d');
+  const gradientEnd = normalizeHexColor(input.gradientEnd, '#412f66');
+  const gradientAngleRaw = Number(input.gradientAngle);
+  const gradientAngle = Number.isFinite(gradientAngleRaw)
+    ? ((gradientAngleRaw % 360) + 360) % 360
+    : 135;
+  const scope = input.scope === 'all' ? 'all' : 'editor';
+  const fit = ['cover', 'contain', 'fill', 'none'].includes(input.fit) ? input.fit : 'cover';
+  const position = ['center', 'top', 'bottom', 'left', 'right', 'top left', 'top right', 'bottom left', 'bottom right'].includes(input.position)
+    ? input.position
+    : 'center';
+
+  return {
+    color,
+    backgroundMode,
+    gradientStart,
+    gradientEnd,
+    gradientAngle,
+    scope,
+    imageFile: typeof input.imageFile === 'string' ? path.basename(input.imageFile) : '',
+    imageOpacity: normalizeUnit(input.imageOpacity, 0.42),
+    overlayOpacity: normalizeUnit(input.overlayOpacity, 0.56),
+    blur: Number.isFinite(blur) ? Math.min(24, Math.max(0, blur)) : 0,
+    fit,
+    position,
+  };
 }
 
 function validateVoiceState(value) {
@@ -1292,7 +1729,9 @@ async function loadPersistentState() {
       persistentState = {
         ...persistentState,
         ...decoded,
+        version: 2,
         voice: validateVoiceState(decoded.voice),
+        appearance: validateAppearanceState(decoded.appearance),
       };
     }
   } catch (error) {
@@ -1395,6 +1834,67 @@ function resolveInsideProject(rootPath, relativePath) {
 
 function normalizeRelativePath(value) {
   return value.split(path.sep).join('/');
+}
+
+
+function applyWindowChrome(window, appearance) {
+  const chrome = appearanceChromeColors(appearance);
+  window.setBackgroundColor(chrome.backgroundColor);
+  if (process.platform === 'win32' && typeof window.setTitleBarOverlay === 'function') {
+    window.setTitleBarOverlay({
+      color: chrome.titleBarColor,
+      symbolColor: chrome.symbolColor,
+      height: 36,
+    });
+  }
+}
+
+function appearanceChromeColors(appearance) {
+  const normalized = validateAppearanceState(appearance);
+  let base = '#171a20';
+  if (normalized.scope === 'all') {
+    base = normalized.backgroundMode === 'gradient'
+      ? blendHex(normalized.gradientStart, normalized.gradientEnd, 0.5)
+      : normalized.color;
+  }
+
+  // Windows titleBarOverlay 只支持单块系统颜色，无法真正跟随 CSS 渐变或用户壁纸。
+  // 使用透明覆盖层，让右上角最小化 / 最大化 / 关闭按钮直接透出网页自己的玻璃标题栏，
+  // 这样纯色、渐变和上传图片都会和窗口按钮区域保持同一套背景。
+  const titleBarColor = '#00000000';
+  const chromeReference = blendHex(base, '#0b0d12', 0.38);
+  const luminance = hexLuminanceValue(chromeReference);
+  return {
+    backgroundColor: base,
+    titleBarColor,
+    symbolColor: luminance > 0.58 ? '#18202d' : '#f2f4f8',
+  };
+}
+
+function blendHex(from, to, amount) {
+  const a = parseHexColor(from) ?? [23, 26, 32];
+  const b = parseHexColor(to) ?? [11, 13, 18];
+  const t = Math.max(0, Math.min(1, Number(amount) || 0));
+  return `#${a.map((value, index) => Math.round(value + (b[index] - value) * t)
+    .toString(16)
+    .padStart(2, '0')).join('')}`;
+}
+
+function parseHexColor(value) {
+  const match = /^#([0-9a-f]{6})$/i.exec(typeof value === 'string' ? value : '');
+  if (!match) {
+    return null;
+  }
+  const number = Number.parseInt(match[1], 16);
+  return [(number >> 16) & 255, (number >> 8) & 255, number & 255];
+}
+
+function hexLuminanceValue(value) {
+  const color = parseHexColor(value);
+  if (!color) {
+    return 0;
+  }
+  return (color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114) / 255;
 }
 
 app.whenReady().then(async () => {

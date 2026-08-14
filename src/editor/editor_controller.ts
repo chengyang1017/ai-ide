@@ -56,9 +56,34 @@ export class EditorController {
       fontSize: 15,
       lineHeight: 24,
       fontFamily: 'Cascadia Code, JetBrains Mono, Consolas, monospace',
-      minimap: { enabled: true },
+      minimap: {
+        enabled: true,
+        side: 'right',
+        // 回到正常 IDE 的比例：不再为了填满高度而拉伸整份源码。
+        // 短文件可以短，长文件按内容比例滚动；可读性优先。
+        size: 'proportional',
+        scale: 1,
+        renderCharacters: true,
+        maxColumn: 100,
+        showSlider: 'always',
+      },
+      // 完整高度的位置提示交给 overview ruler / scrollbar，
+      // 不再让 minimap 同时承担“预览 + 强制铺满”的两个职责。
+      overviewRulerLanes: 3,
+      overviewRulerBorder: false,
+      scrollbar: {
+        vertical: 'visible',
+        verticalScrollbarSize: 12,
+        useShadows: false,
+      },
       smoothScrolling: true,
       scrollBeyondLastLine: false,
+      // 使用 Monaco 原生 Sticky Scroll 保留 class / method 上下文。
+      // 背景由自适应主题提供不透明底色，避免滚动正文从下面穿透。
+      stickyScroll: {
+        enabled: true,
+        maxLineCount: 3,
+      },
       padding: { top: 42, bottom: 18 },
       glyphMargin: true,
       renderLineHighlight: 'all',

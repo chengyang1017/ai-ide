@@ -2,11 +2,13 @@ import './styles.css';
 import { CharacterController } from './character/character_controller';
 import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
+import { monaco } from './editor/monaco_setup';
 import { buildRelatedCodeMoves } from './project/project_navigator';
 import { buildSemanticTutorRoute } from './project/semantic_navigator';
 import type { SemanticTutorMode } from './core/semantic_ai_plan';
 import { VoiceController } from './voice/voice_controller';
 import { CodeNoteController } from './notes/code_note_controller';
+import type { AppearanceState } from './electron_api';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -14,13 +16,13 @@ if (!app) {
 }
 
 app.innerHTML = `
-  <div class="ide-shell">
+  <div id="ide-shell" class="ide-shell" data-background-scope="editor">
     <header class="titlebar">
       <div class="brand">
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.15 · 实时文件同步 + 无遮挡代码便签</small>
+          <small>Alpha 0.16 · 项目便签 + 外观 + Markdown 预览</small>
         </div>
       </div>
 
@@ -55,6 +57,7 @@ app.innerHTML = `
           </div>
         </details>
 
+        <button id="appearance-settings" class="compact-button">◐ 外观</button>
         <button id="set-api-key" class="compact-button">🔑 Key</button>
       </div>
     </header>
@@ -95,8 +98,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.15</strong>
-          <p>外部编辑器保存后会实时同步；代码内便签使用 Monaco 注入文本留出空间，不再盖住代码。</p>
+          <strong>Alpha 0.16</strong>
+          <p>项目便签会跟随仓库共享；支持图片、外部点击自动收起、外观壁纸和 Markdown 实时预览。</p>
         </div>
       </aside>
 
@@ -111,11 +114,17 @@ app.innerHTML = `
             <button id="external-reload" type="button">重新加载</button>
             <button id="external-keep" type="button">保留本地</button>
           </span>
+          <span id="markdown-mode-controls" class="markdown-mode-controls" hidden>
+            <button type="button" data-markdown-mode="edit">编辑</button>
+            <button type="button" data-markdown-mode="split">分栏</button>
+            <button type="button" data-markdown-mode="preview">预览</button>
+          </span>
           <span id="workspace-badge" class="tab-badge">Demo</span>
         </div>
 
         <div id="editor-stage" class="editor-stage">
           <div id="editor" class="editor"></div>
+          <article id="markdown-preview" class="markdown-preview" hidden aria-label="Markdown preview"></article>
 
           <div id="tutor-surface" class="tutor-surface" aria-label="AI Tutor activity layer">
             <div class="speech-bubble" id="speech-bubble"></div>
@@ -176,6 +185,134 @@ app.innerHTML = `
       </div>
     </section>
   </div>
+
+  <div id="appearance-modal" class="modal-backdrop" hidden>
+    <section class="settings-dialog appearance-dialog" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+      <div class="settings-dialog-header">
+        <div>
+          <strong id="appearance-title">外观</strong>
+          <p>颜色、背景图片和代码可读性都保存在本机，不会污染项目。</p>
+        </div>
+        <button id="appearance-close" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="appearance-body">
+        <section class="appearance-section appearance-background-section">
+          <div class="appearance-section-heading">
+            <h3>背景颜色</h3>
+            <div id="appearance-background-mode" class="appearance-segmented" aria-label="背景类型">
+              <button type="button" data-background-mode="solid">纯色</button>
+              <button type="button" data-background-mode="gradient">渐变</button>
+            </div>
+          </div>
+
+          <div id="appearance-solid-controls">
+            <div id="appearance-presets" class="appearance-presets">
+              <button type="button" data-color="#111318" style="--swatch:#111318" title="深黑"></button>
+              <button type="button" data-color="#171a21" style="--swatch:#171a21" title="石墨"></button>
+              <button type="button" data-color="#101827" style="--swatch:#101827" title="深蓝"></button>
+              <button type="button" data-color="#10201c" style="--swatch:#10201c" title="墨绿"></button>
+              <button type="button" data-color="#1e1528" style="--swatch:#1e1528" title="紫黑"></button>
+              <button type="button" data-color="#251a17" style="--swatch:#251a17" title="咖啡"></button>
+              <button type="button" data-color="#2a2521" style="--swatch:#2a2521" title="暖灰"></button>
+              <button type="button" data-color="#f3f1eb" style="--swatch:#f3f1eb" title="暖白"></button>
+              <button type="button" data-color="#eef3f8" style="--swatch:#eef3f8" title="冷白"></button>
+              <button type="button" data-color="#f6efe8" style="--swatch:#f6efe8" title="奶油"></button>
+            </div>
+            <label class="appearance-field appearance-color-field">
+              <span>自定义</span>
+              <input id="appearance-color" type="color" value="#111318" />
+              <code id="appearance-color-value">#111318</code>
+            </label>
+          </div>
+
+          <div id="appearance-gradient-controls" class="appearance-gradient-controls" hidden>
+            <div id="appearance-gradient-presets" class="appearance-gradient-presets">
+              <button type="button" data-gradient-start="#171a2d" data-gradient-end="#412f66" data-gradient-angle="135" style="--swatch:linear-gradient(135deg,#171a2d,#412f66)" title="暮紫"></button>
+              <button type="button" data-gradient-start="#0d2037" data-gradient-end="#283f78" data-gradient-angle="135" style="--swatch:linear-gradient(135deg,#0d2037,#283f78)" title="深海"></button>
+              <button type="button" data-gradient-start="#10251f" data-gradient-end="#17445a" data-gradient-angle="135" style="--swatch:linear-gradient(135deg,#10251f,#17445a)" title="森林蓝"></button>
+              <button type="button" data-gradient-start="#2b1720" data-gradient-end="#5a2b43" data-gradient-angle="135" style="--swatch:linear-gradient(135deg,#2b1720,#5a2b43)" title="玫瑰夜"></button>
+              <button type="button" data-gradient-start="#2a1c17" data-gradient-end="#5a3422" data-gradient-angle="135" style="--swatch:linear-gradient(135deg,#2a1c17,#5a3422)" title="落日咖啡"></button>
+              <button type="button" data-gradient-start="#15171c" data-gradient-end="#303642" data-gradient-angle="120" style="--swatch:linear-gradient(120deg,#15171c,#303642)" title="石墨渐变"></button>
+              <button type="button" data-gradient-start="#241538" data-gradient-end="#123d52" data-gradient-angle="110" style="--swatch:linear-gradient(110deg,#241538,#123d52)" title="紫青"></button>
+              <button type="button" data-gradient-start="#17243c" data-gradient-end="#4a2d59" data-gradient-angle="155" style="--swatch:linear-gradient(155deg,#17243c,#4a2d59)" title="蓝紫"></button>
+            </div>
+            <div class="appearance-gradient-colors">
+              <label class="appearance-field appearance-color-field compact">
+                <span>起点</span>
+                <input id="appearance-gradient-start" type="color" value="#171a2d" />
+                <code id="appearance-gradient-start-value">#171A2D</code>
+              </label>
+              <label class="appearance-field appearance-color-field compact">
+                <span>终点</span>
+                <input id="appearance-gradient-end" type="color" value="#412f66" />
+                <code id="appearance-gradient-end-value">#412F66</code>
+              </label>
+            </div>
+            <label class="appearance-range-field">
+              <span>方向 <output id="appearance-gradient-angle-value">135°</output></span>
+              <input id="appearance-gradient-angle" type="range" min="0" max="359" value="135" />
+            </label>
+          </div>
+        </section>
+
+        <section class="appearance-section">
+          <h3>背景图片</h3>
+          <div class="appearance-image-actions">
+            <button id="appearance-upload" type="button" class="primary-button">上传图片</button>
+            <button id="appearance-clear-image" type="button">移除图片</button>
+            <span id="appearance-image-name">未选择</span>
+          </div>
+          <div id="appearance-preview" class="appearance-preview"><span>背景预览</span></div>
+        </section>
+
+        <section class="appearance-section appearance-controls">
+          <label class="appearance-field">
+            <span>作用范围</span>
+            <select id="appearance-scope">
+              <option value="editor">仅编辑器</option>
+              <option value="all">整个 IDE</option>
+            </select>
+          </label>
+          <label class="appearance-field">
+            <span>图片布局</span>
+            <select id="appearance-fit">
+              <option value="cover">填充</option>
+              <option value="contain">适应</option>
+              <option value="fill">拉伸</option>
+              <option value="none">原尺寸</option>
+            </select>
+          </label>
+          <label class="appearance-field">
+            <span>位置</span>
+            <select id="appearance-position">
+              <option value="center">居中</option>
+              <option value="top">顶部</option>
+              <option value="bottom">底部</option>
+              <option value="left">左侧</option>
+              <option value="right">右侧</option>
+              <option value="top left">左上</option>
+              <option value="top right">右上</option>
+              <option value="bottom left">左下</option>
+              <option value="bottom right">右下</option>
+            </select>
+          </label>
+          <label class="appearance-range-field">
+            <span>图片强度 <output id="appearance-image-opacity-value">42%</output></span>
+            <input id="appearance-image-opacity" type="range" min="0" max="100" value="42" />
+          </label>
+          <label class="appearance-range-field">
+            <span>暗色遮罩 <output id="appearance-overlay-value">56%</output></span>
+            <input id="appearance-overlay" type="range" min="0" max="90" value="56" />
+          </label>
+          <label class="appearance-range-field">
+            <span>模糊 <output id="appearance-blur-value">0px</output></span>
+            <input id="appearance-blur" type="range" min="0" max="24" value="0" />
+          </label>
+        </section>
+      </div>
+    </section>
+  </div>
 `;
 
 const editorElement = requireElement('editor');
@@ -214,6 +351,38 @@ const apiKeyCloseButton = requireButton('api-key-close');
 const apiKeyCancelButton = requireButton('api-key-cancel');
 const apiKeyClearButton = requireButton('api-key-clear');
 const apiKeySaveButton = requireButton('api-key-save');
+const ideShell = requireElement('ide-shell');
+const appearanceSettingsButton = requireButton('appearance-settings');
+const appearanceModal = requireElement('appearance-modal');
+const appearanceCloseButton = requireButton('appearance-close');
+const appearanceBackgroundMode = requireElement('appearance-background-mode');
+const appearanceSolidControls = requireElement('appearance-solid-controls');
+const appearanceGradientControls = requireElement('appearance-gradient-controls');
+const appearancePresets = requireElement('appearance-presets');
+const appearanceColorInput = requireInput('appearance-color');
+const appearanceColorValue = requireElement('appearance-color-value');
+const appearanceGradientPresets = requireElement('appearance-gradient-presets');
+const appearanceGradientStartInput = requireInput('appearance-gradient-start');
+const appearanceGradientStartValue = requireElement('appearance-gradient-start-value');
+const appearanceGradientEndInput = requireInput('appearance-gradient-end');
+const appearanceGradientEndValue = requireElement('appearance-gradient-end-value');
+const appearanceGradientAngleInput = requireInput('appearance-gradient-angle');
+const appearanceGradientAngleValue = requireElement('appearance-gradient-angle-value');
+const appearanceUploadButton = requireButton('appearance-upload');
+const appearanceClearImageButton = requireButton('appearance-clear-image');
+const appearanceImageName = requireElement('appearance-image-name');
+const appearancePreview = requireElement('appearance-preview');
+const appearanceScopeSelect = requireSelect('appearance-scope');
+const appearanceFitSelect = requireSelect('appearance-fit');
+const appearancePositionSelect = requireSelect('appearance-position');
+const appearanceImageOpacityInput = requireInput('appearance-image-opacity');
+const appearanceImageOpacityValue = requireElement('appearance-image-opacity-value');
+const appearanceOverlayInput = requireInput('appearance-overlay');
+const appearanceOverlayValue = requireElement('appearance-overlay-value');
+const appearanceBlurInput = requireInput('appearance-blur');
+const appearanceBlurValue = requireElement('appearance-blur-value');
+const markdownModeControls = requireElement('markdown-mode-controls');
+const markdownPreview = requireElement('markdown-preview');
 
 interface RuntimeMonacoMouseEvent {
   event: {
@@ -232,7 +401,9 @@ interface RuntimeMonacoEditor {
   onMouseDown(listener: (event: RuntimeMonacoMouseEvent) => void): { dispose(): void };
   onMouseMove(listener: (event: RuntimeMonacoMouseEvent) => void): { dispose(): void };
   onMouseLeave(listener: () => void): { dispose(): void };
+  onDidChangeModelContent(listener: () => void): { dispose(): void };
   setPosition(position: { lineNumber: number; column: number }): void;
+  layout(): void;
   focus(): void;
 }
 
@@ -248,6 +419,27 @@ let preferredVoiceLanguage = 'zh-CN';
 let preferredVoiceId = '';
 let preferredVoiceRate = 1;
 let voiceEnabledPreference = true;
+let appearanceState: AppearanceState = {
+  color: '#111318',
+  backgroundMode: 'solid',
+  gradientStart: '#171a2d',
+  gradientEnd: '#412f66',
+  gradientAngle: 135,
+  scope: 'editor',
+  imageFile: '',
+  imageOpacity: 0.42,
+  overlayOpacity: 0.56,
+  blur: 0,
+  fit: 'cover',
+  position: 'center',
+};
+let appearanceBackgroundDataUrl = '';
+type MarkdownViewMode = 'edit' | 'split' | 'preview';
+const savedMarkdownMode = localStorage.getItem('ai-code-tutor.markdown-mode');
+let markdownViewMode: MarkdownViewMode = savedMarkdownMode === 'edit' || savedMarkdownMode === 'preview'
+  ? savedMarkdownMode
+  : 'split';
+let markdownRenderSequence = 0;
 
 const voiceController = new VoiceController({
   character: characterElement,
@@ -301,6 +493,12 @@ editorController.editor.onDidChangeCursorPosition((event) => {
 editorController.onDirtyStateChanged(() => {
   updateEditorSaveState();
   updateFileTreeSelection(false);
+});
+
+runtimeEditor.onDidChangeModelContent(() => {
+  if (isMarkdownFile(editorController.path)) {
+    void renderMarkdownPreview();
+  }
 });
 
 window.tutorIde.onProjectFileChanged((change) => {
@@ -708,6 +906,97 @@ voiceRateSelect.addEventListener('change', () => {
   void persistVoicePreferences();
 });
 
+appearanceSettingsButton.addEventListener('click', () => {
+  syncAppearanceControls();
+  appearanceModal.hidden = false;
+});
+appearanceCloseButton.addEventListener('click', () => {
+  appearanceModal.hidden = true;
+});
+appearanceModal.addEventListener('click', (event) => {
+  if (event.target === appearanceModal) {
+    appearanceModal.hidden = true;
+  }
+});
+appearanceBackgroundMode.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-background-mode]');
+  const mode = button?.dataset.backgroundMode;
+  if (mode !== 'solid' && mode !== 'gradient') {
+    return;
+  }
+  appearanceState = { ...appearanceState, backgroundMode: mode };
+  void updateAppearanceFromControls();
+});
+appearancePresets.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-color]');
+  if (!button?.dataset.color) {
+    return;
+  }
+  appearanceState = { ...appearanceState, backgroundMode: 'solid' };
+  appearanceColorInput.value = button.dataset.color;
+  void updateAppearanceFromControls();
+});
+appearanceGradientPresets.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-gradient-start]');
+  if (!button?.dataset.gradientStart || !button.dataset.gradientEnd) {
+    return;
+  }
+  appearanceState = { ...appearanceState, backgroundMode: 'gradient' };
+  appearanceGradientStartInput.value = button.dataset.gradientStart;
+  appearanceGradientEndInput.value = button.dataset.gradientEnd;
+  appearanceGradientAngleInput.value = button.dataset.gradientAngle ?? '135';
+  void updateAppearanceFromControls();
+});
+appearanceColorInput.addEventListener('input', () => {
+  appearanceState = { ...appearanceState, backgroundMode: 'solid' };
+  void updateAppearanceFromControls(false);
+});
+appearanceColorInput.addEventListener('change', () => void updateAppearanceFromControls(true));
+appearanceGradientStartInput.addEventListener('input', () => {
+  appearanceState = { ...appearanceState, backgroundMode: 'gradient' };
+  void updateAppearanceFromControls(false);
+});
+appearanceGradientEndInput.addEventListener('input', () => {
+  appearanceState = { ...appearanceState, backgroundMode: 'gradient' };
+  void updateAppearanceFromControls(false);
+});
+appearanceGradientAngleInput.addEventListener('input', () => {
+  appearanceState = { ...appearanceState, backgroundMode: 'gradient' };
+  void updateAppearanceFromControls(false);
+});
+appearanceGradientStartInput.addEventListener('change', () => void updateAppearanceFromControls(true));
+appearanceGradientEndInput.addEventListener('change', () => void updateAppearanceFromControls(true));
+appearanceGradientAngleInput.addEventListener('change', () => void updateAppearanceFromControls(true));
+appearanceScopeSelect.addEventListener('change', () => void updateAppearanceFromControls());
+appearanceFitSelect.addEventListener('change', () => void updateAppearanceFromControls());
+appearancePositionSelect.addEventListener('change', () => void updateAppearanceFromControls());
+appearanceImageOpacityInput.addEventListener('input', () => void updateAppearanceFromControls(false));
+appearanceOverlayInput.addEventListener('input', () => void updateAppearanceFromControls(false));
+appearanceBlurInput.addEventListener('input', () => void updateAppearanceFromControls(false));
+appearanceImageOpacityInput.addEventListener('change', () => void updateAppearanceFromControls(true));
+appearanceOverlayInput.addEventListener('change', () => void updateAppearanceFromControls(true));
+appearanceBlurInput.addEventListener('change', () => void updateAppearanceFromControls(true));
+appearanceUploadButton.addEventListener('click', () => void chooseAppearanceBackground());
+appearanceClearImageButton.addEventListener('click', () => void clearAppearanceBackground());
+
+markdownModeControls.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-markdown-mode]');
+  const mode = button?.dataset.markdownMode;
+  if (mode === 'edit' || mode === 'split' || mode === 'preview') {
+    markdownViewMode = mode;
+    localStorage.setItem('ai-code-tutor.markdown-mode', mode);
+    updateMarkdownUi();
+  }
+});
+markdownPreview.addEventListener('click', (event) => {
+  const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+  if (!anchor) {
+    return;
+  }
+  event.preventDefault();
+  void handleMarkdownLink(anchor.getAttribute('href') ?? '');
+});
+
 setApiKeyButton.addEventListener('click', () => {
   openApiKeyDialog();
 });
@@ -1019,6 +1308,639 @@ function updateVoiceToggleLabel(): void {
     : '🔇 语音关闭';
 }
 
+
+function applyAppearance(): void {
+  const image = appearanceBackgroundDataUrl ? `url("${appearanceBackgroundDataUrl}")` : 'none';
+  const background = appearanceState.backgroundMode === 'gradient'
+    ? `linear-gradient(${appearanceState.gradientAngle}deg, ${appearanceState.gradientStart}, ${appearanceState.gradientEnd})`
+    : appearanceState.color;
+  ideShell.dataset.backgroundScope = appearanceState.scope;
+  ideShell.dataset.backgroundMode = appearanceState.backgroundMode;
+  ideShell.dataset.hasBackgroundImage = String(Boolean(appearanceBackgroundDataUrl));
+  ideShell.style.setProperty('--appearance-color', appearanceState.color);
+  ideShell.style.setProperty('--appearance-background', background);
+  ideShell.style.setProperty('--appearance-gradient-start', appearanceState.gradientStart);
+  ideShell.style.setProperty('--appearance-gradient-end', appearanceState.gradientEnd);
+  ideShell.style.setProperty('--appearance-gradient-angle', `${appearanceState.gradientAngle}deg`);
+  ideShell.style.setProperty('--appearance-image', image);
+  ideShell.style.setProperty('--appearance-image-opacity', String(appearanceState.imageOpacity));
+  ideShell.style.setProperty('--appearance-overlay-opacity', String(appearanceState.overlayOpacity));
+  ideShell.style.setProperty('--appearance-blur', `${appearanceState.blur}px`);
+  ideShell.style.setProperty('--appearance-fit', appearanceState.fit === 'none' ? 'auto' : appearanceState.fit);
+  ideShell.style.setProperty('--appearance-position', appearanceState.position);
+
+  const stickySurface = stickyScrollSurface(background);
+  ideShell.style.setProperty('--sticky-scroll-background', stickySurface.cssBackground);
+  ideShell.style.setProperty('--sticky-scroll-color', stickySurface.color);
+  ideShell.style.setProperty('--sticky-scroll-hover', stickySurface.hover);
+  ideShell.style.setProperty('--sticky-scroll-border', stickySurface.border);
+  ideShell.style.setProperty('--sticky-scroll-shadow', stickySurface.shadow);
+
+  appearancePreview.dataset.hasBackgroundImage = String(Boolean(appearanceBackgroundDataUrl));
+  appearancePreview.dataset.backgroundMode = appearanceState.backgroundMode;
+  appearancePreview.style.setProperty('--appearance-color', appearanceState.color);
+  appearancePreview.style.setProperty('--appearance-background', background);
+  appearancePreview.style.setProperty('--appearance-gradient-start', appearanceState.gradientStart);
+  appearancePreview.style.setProperty('--appearance-gradient-end', appearanceState.gradientEnd);
+  appearancePreview.style.setProperty('--appearance-gradient-angle', `${appearanceState.gradientAngle}deg`);
+  appearancePreview.style.setProperty('--appearance-image', image);
+  appearancePreview.style.setProperty('--appearance-image-opacity', String(appearanceState.imageOpacity));
+  appearancePreview.style.setProperty('--appearance-overlay-opacity', String(appearanceState.overlayOpacity));
+  appearancePreview.style.setProperty('--appearance-blur', `${appearanceState.blur}px`);
+  appearancePreview.style.setProperty('--appearance-fit', appearanceState.fit === 'none' ? 'auto' : appearanceState.fit);
+  appearancePreview.style.setProperty('--appearance-position', appearanceState.position);
+
+  applyAdaptiveSyntaxTheme();
+}
+
+function syncAppearanceControls(imageName = appearanceState.imageFile): void {
+  appearanceColorInput.value = appearanceState.color;
+  appearanceColorValue.textContent = appearanceState.color.toUpperCase();
+  appearanceGradientStartInput.value = appearanceState.gradientStart;
+  appearanceGradientStartValue.textContent = appearanceState.gradientStart.toUpperCase();
+  appearanceGradientEndInput.value = appearanceState.gradientEnd;
+  appearanceGradientEndValue.textContent = appearanceState.gradientEnd.toUpperCase();
+  appearanceGradientAngleInput.value = String(Math.round(appearanceState.gradientAngle));
+  appearanceGradientAngleValue.textContent = `${Math.round(appearanceState.gradientAngle)}°`;
+  appearanceSolidControls.hidden = appearanceState.backgroundMode !== 'solid';
+  appearanceGradientControls.hidden = appearanceState.backgroundMode !== 'gradient';
+  for (const button of appearanceBackgroundMode.querySelectorAll<HTMLButtonElement>('[data-background-mode]')) {
+    button.dataset.active = String(button.dataset.backgroundMode === appearanceState.backgroundMode);
+  }
+  appearanceScopeSelect.value = appearanceState.scope;
+  appearanceFitSelect.value = appearanceState.fit;
+  appearancePositionSelect.value = appearanceState.position;
+  appearanceImageOpacityInput.value = String(Math.round(appearanceState.imageOpacity * 100));
+  appearanceOverlayInput.value = String(Math.round(appearanceState.overlayOpacity * 100));
+  appearanceBlurInput.value = String(Math.round(appearanceState.blur));
+  appearanceImageOpacityValue.textContent = `${appearanceImageOpacityInput.value}%`;
+  appearanceOverlayValue.textContent = `${appearanceOverlayInput.value}%`;
+  appearanceBlurValue.textContent = `${appearanceBlurInput.value}px`;
+  appearanceImageName.textContent = imageName || '未选择';
+  appearanceClearImageButton.disabled = !appearanceBackgroundDataUrl;
+  for (const button of appearancePresets.querySelectorAll<HTMLButtonElement>('[data-color]')) {
+    button.dataset.active = String(
+      appearanceState.backgroundMode === 'solid'
+      && button.dataset.color?.toLowerCase() === appearanceState.color.toLowerCase()
+    );
+  }
+  for (const button of appearanceGradientPresets.querySelectorAll<HTMLButtonElement>('[data-gradient-start]')) {
+    button.dataset.active = String(
+      appearanceState.backgroundMode === 'gradient'
+      && button.dataset.gradientStart?.toLowerCase() === appearanceState.gradientStart.toLowerCase()
+      && button.dataset.gradientEnd?.toLowerCase() === appearanceState.gradientEnd.toLowerCase()
+      && Number(button.dataset.gradientAngle ?? 135) === Math.round(appearanceState.gradientAngle)
+    );
+  }
+  applyAppearance();
+}
+
+async function updateAppearanceFromControls(persist = true): Promise<void> {
+  appearanceState = {
+    ...appearanceState,
+    color: appearanceColorInput.value,
+    backgroundMode: appearanceState.backgroundMode === 'gradient' ? 'gradient' : 'solid',
+    gradientStart: appearanceGradientStartInput.value,
+    gradientEnd: appearanceGradientEndInput.value,
+    gradientAngle: Number(appearanceGradientAngleInput.value),
+    scope: appearanceScopeSelect.value === 'all' ? 'all' : 'editor',
+    fit: normalizeAppearanceFit(appearanceFitSelect.value),
+    position: normalizeAppearancePosition(appearancePositionSelect.value),
+    imageOpacity: Number(appearanceImageOpacityInput.value) / 100,
+    overlayOpacity: Number(appearanceOverlayInput.value) / 100,
+    blur: Number(appearanceBlurInput.value),
+  };
+  syncAppearanceControls();
+  if (!persist) {
+    return;
+  }
+  try {
+    appearanceState = await window.tutorIde.updateAppearanceState(appearanceState);
+    syncAppearanceControls();
+  } catch (error) {
+    tutorStatus.textContent = `外观保存失败：${errorMessage(error)}`;
+  }
+}
+
+async function chooseAppearanceBackground(): Promise<void> {
+  appearanceUploadButton.disabled = true;
+  appearanceUploadButton.textContent = '选择中…';
+  try {
+    const result = await window.tutorIde.chooseAppearanceBackground();
+    if (!result) {
+      return;
+    }
+    appearanceState = result.appearance;
+    appearanceBackgroundDataUrl = result.dataUrl;
+    syncAppearanceControls(result.name);
+    tutorStatus.textContent = `✓ 已设置背景图片 · ${result.name}`;
+  } catch (error) {
+    tutorStatus.textContent = `背景图片设置失败：${errorMessage(error)}`;
+  } finally {
+    appearanceUploadButton.disabled = false;
+    appearanceUploadButton.textContent = '上传图片';
+  }
+}
+
+async function clearAppearanceBackground(): Promise<void> {
+  try {
+    appearanceState = await window.tutorIde.clearAppearanceBackground();
+    appearanceBackgroundDataUrl = '';
+    syncAppearanceControls();
+    tutorStatus.textContent = '已移除背景图片';
+  } catch (error) {
+    tutorStatus.textContent = `移除背景失败：${errorMessage(error)}`;
+  }
+}
+
+function normalizeAppearanceFit(value: string): AppearanceState['fit'] {
+  return value === 'contain' || value === 'fill' || value === 'none' ? value : 'cover';
+}
+
+function normalizeAppearancePosition(value: string): AppearanceState['position'] {
+  const positions: AppearanceState['position'][] = [
+    'center', 'top', 'bottom', 'left', 'right',
+    'top left', 'top right', 'bottom left', 'bottom right',
+  ];
+  return positions.includes(value as AppearanceState['position'])
+    ? value as AppearanceState['position']
+    : 'center';
+}
+
+function applyAdaptiveSyntaxTheme(): void {
+  const backgroundColors = appearanceState.backgroundMode === 'gradient'
+    ? [appearanceState.gradientStart, appearanceState.gradientEnd]
+    : [appearanceState.color];
+  const averageLuminance = backgroundColors.reduce(
+    (total, color) => total + hexLuminance(color),
+    0,
+  ) / Math.max(1, backgroundColors.length);
+
+  // 黑色遮罩会显著降低实际代码区亮度。背景图片无法可靠采样时，
+  // 使用遮罩强度作为保守判断，避免在照片上误用低对比度的浅色语法。
+  const effectiveLuminance = averageLuminance * (1 - appearanceState.overlayOpacity);
+  const useLightTokens = !appearanceBackgroundDataUrl
+    && effectiveLuminance >= 0.62;
+
+  const stickySurface = stickyScrollSurface(
+    appearanceState.backgroundMode === 'gradient'
+      ? `linear-gradient(${appearanceState.gradientAngle}deg, ${appearanceState.gradientStart}, ${appearanceState.gradientEnd})`
+      : appearanceState.color,
+  );
+
+  const rules: monaco.editor.ITokenThemeRule[] = useLightTokens
+    ? [
+        { token: 'comment', foreground: '64748B', fontStyle: 'italic' },
+        { token: 'keyword', foreground: '7C3AED', fontStyle: 'bold' },
+        { token: 'string', foreground: '0F766E' },
+        { token: 'number', foreground: 'B45309' },
+        { token: 'regexp', foreground: 'BE123C' },
+        { token: 'type', foreground: '0369A1' },
+        { token: 'type.identifier', foreground: '0369A1' },
+        { token: 'class', foreground: '0369A1' },
+        { token: 'function', foreground: '1D4ED8' },
+        { token: 'variable', foreground: '0F172A' },
+        { token: 'constant', foreground: 'B45309' },
+        { token: 'operator', foreground: '6D28D9' },
+        { token: 'delimiter', foreground: '475569' },
+      ]
+    : [
+        { token: 'comment', foreground: '8995A5', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'D6A6FF', fontStyle: 'bold' },
+        { token: 'string', foreground: 'A7E68A' },
+        { token: 'number', foreground: 'FFB879' },
+        { token: 'regexp', foreground: 'FF91A4' },
+        { token: 'type', foreground: '82D8FF' },
+        { token: 'type.identifier', foreground: '82D8FF' },
+        { token: 'class', foreground: '82D8FF' },
+        { token: 'function', foreground: '80BFFF' },
+        { token: 'variable', foreground: 'E7EBF3' },
+        { token: 'constant', foreground: 'FFD580' },
+        { token: 'operator', foreground: 'FF9BD8' },
+        { token: 'delimiter', foreground: 'ACB4C1' },
+      ];
+
+  monaco.editor.defineTheme('ai-tutor-adaptive', {
+    base: useLightTokens ? 'vs' : 'vs-dark',
+    inherit: true,
+    rules,
+    colors: useLightTokens
+      ? {
+          'editor.background': '#FFFFFF00',
+          'editor.foreground': '#172033',
+          'editorLineNumber.foreground': '#64748B',
+          'editorLineNumber.activeForeground': '#172033',
+          'editorCursor.foreground': '#5B21B6',
+          'editor.selectionBackground': '#2563EB33',
+          'editor.inactiveSelectionBackground': '#2563EB1F',
+          'editor.lineHighlightBackground': '#0F172A0A',
+          // Sticky Scroll 与当前外观共用同一色系，但仍保持完全不透明，
+          // 防止下面正在滚动的正文穿透。
+          'editorStickyScroll.background': stickySurface.color,
+          'editorStickyScrollHover.background': stickySurface.hover,
+          'editorStickyScroll.border': stickySurface.border,
+          'editorStickyScroll.shadow': stickySurface.shadow,
+          'editorIndentGuide.background1': '#64748B33',
+          'editorIndentGuide.activeBackground1': '#47556966',
+          'editorGutter.background': '#00000000',
+          'minimap.background': '#00000000',
+          'editorOverviewRuler.background': '#00000000',
+          'editorOverviewRuler.border': '#00000000',
+          'scrollbar.shadow': '#00000000',
+        }
+      : {
+          'editor.background': '#00000000',
+          'editor.foreground': '#E7EBF3',
+          'editorLineNumber.foreground': '#788493',
+          'editorLineNumber.activeForeground': '#EEF2F8',
+          'editorCursor.foreground': '#E7D8FF',
+          'editor.selectionBackground': '#7C5CFF55',
+          'editor.inactiveSelectionBackground': '#7C5CFF2E',
+          'editor.lineHighlightBackground': '#FFFFFF0A',
+          'editorStickyScroll.background': stickySurface.color,
+          'editorStickyScrollHover.background': stickySurface.hover,
+          'editorStickyScroll.border': stickySurface.border,
+          'editorStickyScroll.shadow': stickySurface.shadow,
+          'editorIndentGuide.background1': '#FFFFFF16',
+          'editorIndentGuide.activeBackground1': '#FFFFFF33',
+          'editorGutter.background': '#00000000',
+          'minimap.background': '#00000000',
+          'editorOverviewRuler.background': '#00000000',
+          'editorOverviewRuler.border': '#00000000',
+          'scrollbar.shadow': '#00000000',
+        },
+  });
+  monaco.editor.setTheme('ai-tutor-adaptive');
+  ideShell.dataset.syntaxTone = useLightTokens ? 'light' : 'dark';
+}
+
+function stickyScrollSurface(backgroundCss: string): {
+  cssBackground: string;
+  color: string;
+  hover: string;
+  border: string;
+  shadow: string;
+} {
+  const color = appearanceState.backgroundMode === 'gradient'
+    ? mixHexColors(appearanceState.gradientStart, appearanceState.gradientEnd, 0.5)
+    : normalizeHexColor(appearanceState.color);
+  const light = hexLuminance(color) >= 0.58;
+
+  // 对纯色/渐变直接复用用户选择的背景；图片模式不能透明，否则会重新出现
+  // 正文穿透，因此使用与当前主题同色系的完全不透明底色。
+  const cssBackground = appearanceBackgroundDataUrl ? color : backgroundCss;
+
+  return {
+    cssBackground,
+    color,
+    hover: mixHexColors(color, light ? '#000000' : '#FFFFFF', light ? 0.07 : 0.09),
+    border: mixHexColors(color, light ? '#000000' : '#FFFFFF', light ? 0.16 : 0.14),
+    shadow: light ? '#0F172A24' : '#00000066',
+  };
+}
+
+function normalizeHexColor(color: string): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(color);
+  return match ? `#${match[1].toUpperCase()}` : '#171A22';
+}
+
+function mixHexColors(from: string, to: string, amount: number): string {
+  const a = hexRgb(normalizeHexColor(from));
+  const b = hexRgb(normalizeHexColor(to));
+  const t = Math.max(0, Math.min(1, amount));
+  return `#${[
+    Math.round(a.red + (b.red - a.red) * t),
+    Math.round(a.green + (b.green - a.green) * t),
+    Math.round(a.blue + (b.blue - a.blue) * t),
+  ].map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+function hexRgb(color: string): { red: number; green: number; blue: number } {
+  const value = Number.parseInt(color.slice(1), 16);
+  return {
+    red: (value >> 16) & 255,
+    green: (value >> 8) & 255,
+    blue: value & 255,
+  };
+}
+
+function hexLuminance(color: string): number {
+  const match = /^#([0-9a-f]{6})$/i.exec(color);
+  if (!match) {
+    return 0;
+  }
+  const value = Number.parseInt(match[1], 16);
+  const red = ((value >> 16) & 255) / 255;
+  const green = ((value >> 8) & 255) / 255;
+  const blue = (value & 255) / 255;
+  return red * 0.299 + green * 0.587 + blue * 0.114;
+}
+
+function isMarkdownFile(filePath: string): boolean {
+  return /\.(md|markdown)$/i.test(filePath);
+}
+
+function updateMarkdownUi(): void {
+  const markdown = isMarkdownFile(editorController.path);
+  markdownModeControls.hidden = !markdown;
+  editorStage.dataset.markdownMode = markdown ? markdownViewMode : 'none';
+  markdownPreview.hidden = !markdown || markdownViewMode === 'edit';
+  editorElement.hidden = markdown && markdownViewMode === 'preview';
+  tutorStatus.dataset.markdown = String(markdown);
+
+  for (const button of markdownModeControls.querySelectorAll<HTMLButtonElement>('[data-markdown-mode]')) {
+    button.dataset.active = String(button.dataset.markdownMode === markdownViewMode);
+  }
+
+  if (markdown) {
+    void renderMarkdownPreview();
+  } else {
+    markdownPreview.replaceChildren();
+  }
+  window.requestAnimationFrame(() => runtimeEditor.layout());
+}
+
+async function renderMarkdownPreview(): Promise<void> {
+  if (!isMarkdownFile(editorController.path) || markdownViewMode === 'edit') {
+    return;
+  }
+  const sequence = ++markdownRenderSequence;
+  const filePath = editorController.path;
+  const source = editorController.getCurrentContent();
+  markdownPreview.innerHTML = renderMarkdownDocument(source);
+
+  const localImages = Array.from(markdownPreview.querySelectorAll<HTMLImageElement>('img[data-project-src]'));
+  await Promise.all(localImages.map(async (image) => {
+    const rawSource = image.dataset.projectSrc ?? '';
+    const resolved = resolveProjectRelativePath(filePath, rawSource);
+    if (!resolved) {
+      image.dataset.broken = 'true';
+      return;
+    }
+    try {
+      const asset = await window.tutorIde.readProjectAsset(resolved);
+      if (sequence !== markdownRenderSequence || filePath !== editorController.path) {
+        return;
+      }
+      image.src = asset.dataUrl;
+      image.removeAttribute('data-project-src');
+    } catch {
+      image.dataset.broken = 'true';
+      image.alt = `${image.alt || '图片'}（无法读取 ${resolved}）`;
+    }
+  }));
+}
+
+function renderMarkdownDocument(source: string): string {
+  const lines = source.replace(/\r\n?/g, '\n').split('\n');
+  const output: string[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    const fence = /^```([^`]*)$/.exec(trimmed);
+    if (fence) {
+      const language = escapeText(fence[1].trim());
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^```\s*$/.test(lines[index].trim())) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      index += index < lines.length ? 1 : 0;
+      output.push(`<pre><code${language ? ` data-language="${language}"` : ''}>${escapeText(code.join('\n'))}</code></pre>`);
+      continue;
+    }
+
+    if (index + 1 < lines.length && isMarkdownTableSeparator(lines[index + 1]) && line.includes('|')) {
+      const headers = splitMarkdownTableRow(line);
+      index += 2;
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
+        rows.push(splitMarkdownTableRow(lines[index]));
+        index += 1;
+      }
+      output.push(`<div class="md-table-wrap"><table><thead><tr>${headers.map((cell) => `<th>${renderMarkdownInline(cell)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((_header, cellIndex) => `<td>${renderMarkdownInline(row[cellIndex] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      const level = heading[1].length;
+      const text = heading[2].trim();
+      const id = markdownHeadingId(text);
+      output.push(`<h${level} id="${escapeAttribute(id)}">${renderMarkdownInline(text)}</h${level}>`);
+      index += 1;
+      continue;
+    }
+
+    if (/^([-*_])(?:\s*\1){2,}\s*$/.test(trimmed)) {
+      output.push('<hr />');
+      index += 1;
+      continue;
+    }
+
+    if (/^>\s?/.test(trimmed)) {
+      const quotes: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
+        quotes.push(lines[index].trim().replace(/^>\s?/, ''));
+        index += 1;
+      }
+      output.push(`<blockquote>${quotes.map((value) => `<p>${renderMarkdownInline(value)}</p>`).join('')}</blockquote>`);
+      continue;
+    }
+
+    if (/^[-+*]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-+*]\s+/.test(lines[index].trim())) {
+        const item = lines[index].trim().replace(/^[-+*]\s+/, '');
+        const task = /^\[([ xX])\]\s+(.*)$/.exec(item);
+        items.push(task
+          ? `<li class="task-list-item"><input type="checkbox" disabled ${task[1].toLowerCase() === 'x' ? 'checked' : ''} /><span>${renderMarkdownInline(task[2])}</span></li>`
+          : `<li>${renderMarkdownInline(item)}</li>`);
+        index += 1;
+      }
+      output.push(`<ul>${items.join('')}</ul>`);
+      continue;
+    }
+
+    if (/^\d+[.)]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+[.)]\s+/.test(lines[index].trim())) {
+        items.push(`<li>${renderMarkdownInline(lines[index].trim().replace(/^\d+[.)]\s+/, ''))}</li>`);
+        index += 1;
+      }
+      output.push(`<ol>${items.join('')}</ol>`);
+      continue;
+    }
+
+    const paragraph: string[] = [trimmed];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isMarkdownBlockStart(lines, index)) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    output.push(`<p>${renderMarkdownInline(paragraph.join(' '))}</p>`);
+  }
+
+  return output.join('\n');
+}
+
+function renderMarkdownInline(raw: string): string {
+  const codeTokens: string[] = [];
+  const elementTokens: string[] = [];
+  let working = raw.replace(/`([^`]+)`/g, (_match, code: string) => {
+    const token = `\u0000CODE${codeTokens.length}\u0000`;
+    codeTokens.push(`<code>${escapeText(code)}</code>`);
+    return token;
+  });
+  working = escapeText(working);
+
+  working = working.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g, (_match, alt: string, url: string) => {
+    const decodedUrl = decodeHtmlAttribute(url);
+    const html = /^https?:\/\//i.test(decodedUrl) || /^data:image\//i.test(decodedUrl)
+      ? `<img src="${escapeAttribute(decodedUrl)}" alt="${escapeAttribute(decodeHtmlAttribute(alt))}" loading="lazy" />`
+      : `<img data-project-src="${escapeAttribute(decodedUrl)}" alt="${escapeAttribute(decodeHtmlAttribute(alt))}" loading="lazy" />`;
+    const token = `\u0001ELEMENT${elementTokens.length}\u0001`;
+    elementTokens.push(html);
+    return token;
+  });
+  working = working.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g, (_match, label: string, url: string) => {
+    const decodedUrl = decodeHtmlAttribute(url);
+    const token = `\u0001ELEMENT${elementTokens.length}\u0001`;
+    elementTokens.push(`<a href="${escapeAttribute(decodedUrl)}">${label}</a>`);
+    return token;
+  });
+
+  working = working.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  working = working.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  working = working.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  working = working.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
+  working = working.replace(/(^|[^_])_([^_]+)_(?!_)/g, '$1<em>$2</em>');
+
+  for (let index = 0; index < elementTokens.length; index += 1) {
+    working = working.replace(`\u0001ELEMENT${index}\u0001`, elementTokens[index]);
+  }
+  for (let index = 0; index < codeTokens.length; index += 1) {
+    working = working.replace(`\u0000CODE${index}\u0000`, codeTokens[index]);
+  }
+  return working;
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = splitMarkdownTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitMarkdownTableRow(line: string): string[] {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+}
+
+function isMarkdownBlockStart(lines: string[], index: number): boolean {
+  const value = lines[index].trim();
+  return !value
+    || /^```/.test(value)
+    || /^(#{1,6})\s+/.test(value)
+    || /^>\s?/.test(value)
+    || /^[-+*]\s+/.test(value)
+    || /^\d+[.)]\s+/.test(value)
+    || /^([-*_])(?:\s*\1){2,}\s*$/.test(value)
+    || (index + 1 < lines.length && value.includes('|') && isMarkdownTableSeparator(lines[index + 1]));
+}
+
+function markdownHeadingId(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[`*_~]/g, '')
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .trim()
+    .replace(/\s+/g, '-');
+}
+
+async function handleMarkdownLink(rawHref: string): Promise<void> {
+  const href = decodeHtmlAttribute(rawHref.trim());
+  if (!href) {
+    return;
+  }
+  if (href.startsWith('#')) {
+    const target = markdownPreview.querySelector<HTMLElement>(`#${cssEscape(href.slice(1))}`);
+    target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    return;
+  }
+  if (/^https?:\/\//i.test(href)) {
+    await window.tutorIde.openExternal(href);
+    return;
+  }
+
+  const [pathPart] = href.split('#', 1);
+  const resolved = resolveProjectRelativePath(editorController.path, pathPart);
+  if (resolved && projectFiles.includes(resolved)) {
+    await openRealProjectFile(resolved, false, true);
+    return;
+  }
+  tutorStatus.textContent = `Markdown 链接无法在当前项目中打开：${href}`;
+}
+
+function resolveProjectRelativePath(fromFile: string, rawTarget: string): string {
+  const cleanTarget = decodeURIComponentSafe(rawTarget.split(/[?#]/, 1)[0]).replaceAll('\\', '/');
+  if (!cleanTarget || /^(?:[a-z]+:)?\/\//i.test(cleanTarget)) {
+    return '';
+  }
+  const baseParts = cleanTarget.startsWith('/')
+    ? []
+    : fromFile.split('/').slice(0, -1);
+  const parts = [...baseParts, ...cleanTarget.replace(/^\/+/, '').split('/')];
+  const normalized: string[] = [];
+  for (const part of parts) {
+    if (!part || part === '.') {
+      continue;
+    }
+    if (part === '..') {
+      if (normalized.length === 0) {
+        return '';
+      }
+      normalized.pop();
+      continue;
+    }
+    normalized.push(part);
+  }
+  return normalized.join('/');
+}
+
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#039;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>');
+}
+
+function escapeAttribute(value: string): string {
+  return escapeText(value).replaceAll('`', '&#096;');
+}
+
+function decodeURIComponentSafe(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function cssEscape(value: string): string {
+  if ('CSS' in window && typeof CSS.escape === 'function') {
+    return CSS.escape(value);
+  }
+  return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+}
+
 async function initializeApplication(): Promise<void> {
   tutorStatus.textContent = '正在恢复上次工作区…';
   try {
@@ -1027,6 +1949,11 @@ async function initializeApplication(): Promise<void> {
     preferredVoiceId = state.voice.voiceId || '';
     preferredVoiceRate = Number.isFinite(state.voice.rate) ? state.voice.rate : 1;
     voiceEnabledPreference = state.voice.enabled !== false;
+    appearanceState = state.appearance ?? appearanceState;
+    const background = await window.tutorIde.getAppearanceBackground();
+    appearanceBackgroundDataUrl = background?.dataUrl ?? '';
+    applyAppearance();
+    syncAppearanceControls(background?.name ?? appearanceState.imageFile);
 
     voiceController.setLanguage(preferredVoiceLanguage);
     voiceController.setRate(preferredVoiceRate);
@@ -1239,6 +2166,7 @@ function clearExternalChangeState(): void {
 function updateActiveFile(): void {
   activeFile.textContent = editorController.path;
   updateEditorSaveState();
+  updateMarkdownUi();
 }
 
 function updateEditorSaveState(): void {
