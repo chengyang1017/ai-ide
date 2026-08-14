@@ -51,6 +51,9 @@ declare global {
         path: string;
         bytes: number;
       }>;
+      watchProjectFile(relativePath: string): Promise<{ path: string }>;
+      unwatchProjectFile(): Promise<boolean>;
+      onProjectFileChanged(listener: (change: { path: string }) => void): () => void;
       listCodeNotes(relativePath: string): Promise<CodeNote[]>;
       upsertCodeNote(note: {
         id: string;

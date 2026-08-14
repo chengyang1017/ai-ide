@@ -136,6 +136,37 @@ export class EditorController {
     return model.getValue() !== (this.savedValues.get(path) ?? model.getValue());
   }
 
+  replaceFileContentFromDisk(file: EditorFile): void {
+    const model = this.models.get(file.path);
+    if (!model) {
+      return;
+    }
+
+    const wasCurrent = file.path === this.currentPath;
+    const position = wasCurrent ? this.editor.getPosition() : null;
+    const scrollTop = wasCurrent ? this.editor.getScrollTop() : 0;
+    const scrollLeft = wasCurrent ? this.editor.getScrollLeft() : 0;
+
+    this.savedValues.set(file.path, file.content);
+    if (model.getValue() !== file.content) {
+      model.setValue(file.content);
+    }
+    monaco.editor.setModelLanguage(model, file.language);
+
+    if (wasCurrent) {
+      if (position) {
+        const lineNumber = Math.max(1, Math.min(position.lineNumber, model.getLineCount()));
+        const column = Math.max(1, Math.min(position.column, model.getLineMaxColumn(lineNumber)));
+        this.editor.setPosition({ lineNumber, column });
+      }
+      this.editor.setScrollTop(scrollTop);
+      this.editor.setScrollLeft(scrollLeft);
+      this.highlightCollection.clear();
+      this.definitionHintCollection.clear();
+      this.emitDirtyState();
+    }
+  }
+
   markSaved(path = this.currentPath, savedContent?: string): void {
     const model = this.models.get(path);
     if (!model) {

@@ -5,6 +5,13 @@ contextBridge.exposeInMainWorld('tutorIde', {
   restoreProject: () => ipcRenderer.invoke('project:restore'),
   readProjectFile: (relativePath) => ipcRenderer.invoke('project:read-file', relativePath),
   writeProjectFile: (relativePath, content) => ipcRenderer.invoke('project:write-file', relativePath, content),
+  watchProjectFile: (relativePath) => ipcRenderer.invoke('project:watch-file', relativePath),
+  unwatchProjectFile: () => ipcRenderer.invoke('project:unwatch-file'),
+  onProjectFileChanged: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('project:file-changed', wrapped);
+    return () => ipcRenderer.removeListener('project:file-changed', wrapped);
+  },
   searchProject: (query) => ipcRenderer.invoke('project:search', query),
   listCodeNotes: (relativePath) => ipcRenderer.invoke('notes:list', relativePath),
   upsertCodeNote: (note) => ipcRenderer.invoke('notes:upsert', note),

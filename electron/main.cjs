@@ -1,5 +1,6 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
 const fs = require('node:fs/promises');
+const { watch } = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { DartLspClient } = require('./dart_lsp.cjs');
@@ -34,6 +35,8 @@ let currentProjectFiles = [];
 let runtimeOpenAiKey = process.env.OPENAI_API_KEY?.trim() || '';
 let dartLspClient = null;
 const windowsTts = new WindowsTtsBridge();
+const projectFileWatchers = new Map();
+const internalWriteSuppressUntil = new Map();
 
 const DEFAULT_APP_STATE = {
   version: 1,
@@ -73,6 +76,10 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
     },
+  });
+
+  window.webContents.on('destroyed', () => {
+    closeProjectFileWatcher(window.webContents.id);
   });
 
   if (app.isPackaged) {
@@ -120,6 +127,63 @@ ipcMain.handle('project:restore', async () => {
   } catch {
     return null;
   }
+});
+
+
+ipcMain.handle('project:watch-file', async (event, relativePath) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  const normalizedPath = validateProjectFilePath(relativePath);
+  const targetPath = resolveInsideProject(currentProjectRoot, normalizedPath);
+  const stat = await fs.stat(targetPath);
+  if (!stat.isFile()) {
+    throw new Error('目标不是文件。');
+  }
+
+  const senderId = event.sender.id;
+  closeProjectFileWatcher(senderId);
+
+  let debounceTimer = null;
+  const watcher = watch(targetPath, { persistent: false }, () => {
+    const suppressedUntil = internalWriteSuppressUntil.get(targetPath) ?? 0;
+    if (Date.now() <= suppressedUntil) {
+      return;
+    }
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('project:file-changed', { path: normalizedPath });
+      }
+    }, 120);
+  });
+
+  watcher.on('error', () => {
+    closeProjectFileWatcher(senderId);
+  });
+
+  projectFileWatchers.set(senderId, {
+    watcher,
+    dispose() {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      watcher.close();
+    },
+  });
+
+  return { path: normalizedPath };
+});
+
+ipcMain.handle('project:unwatch-file', (event) => {
+  closeProjectFileWatcher(event.sender.id);
+  return true;
 });
 
 ipcMain.handle('project:read-file', async (_event, relativePath) => {
@@ -182,7 +246,14 @@ ipcMain.handle('project:write-file', async (_event, relativePath, rawContent) =>
     throw new Error('目标不是文件。');
   }
 
+  internalWriteSuppressUntil.set(targetPath, Date.now() + 650);
   await fs.writeFile(targetPath, rawContent, 'utf8');
+  setTimeout(() => {
+    const suppressedUntil = internalWriteSuppressUntil.get(targetPath) ?? 0;
+    if (Date.now() >= suppressedUntil) {
+      internalWriteSuppressUntil.delete(targetPath);
+    }
+  }, 700).unref?.();
   persistentState.lastOpenFile = normalizedPath;
   await savePersistentState();
 
@@ -1102,6 +1173,20 @@ function findMatchesInFile(relativePath, content, lowerQuery, maximumMatches) {
   }
 
   return results;
+}
+
+
+function closeProjectFileWatcher(senderId) {
+  const entry = projectFileWatchers.get(senderId);
+  if (!entry) {
+    return;
+  }
+  projectFileWatchers.delete(senderId);
+  try {
+    entry.dispose();
+  } catch {
+    // Ignore watcher cleanup races while windows/projects are closing.
+  }
 }
 
 async function loadProjectRoot(rootPath) {

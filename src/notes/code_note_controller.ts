@@ -22,6 +22,8 @@ interface RuntimeTextModel extends monaco.editor.ITextModel {
 interface RuntimeMouseTarget {
   type: number;
   position?: { lineNumber: number; column: number } | null;
+  element?: HTMLElement | null;
+  detail?: { mightBeForeignElement?: boolean } | null;
 }
 
 interface RuntimeMouseEvent {
@@ -49,7 +51,8 @@ interface DraftNote {
 export class CodeNoteController {
   private readonly noteDecorations: monaco.editor.IEditorDecorationsCollection;
   private readonly addDecoration: monaco.editor.IEditorDecorationsCollection;
-  private readonly inlineLayer: HTMLDivElement;
+  private readonly inlineNoteDecorations: monaco.editor.IEditorDecorationsCollection;
+  private readonly inlineAddDecoration: monaco.editor.IEditorDecorationsCollection;
   private readonly popover: HTMLDivElement;
   private readonly lineLabel: HTMLSpanElement;
   private readonly textarea: HTMLTextAreaElement;
@@ -69,10 +72,8 @@ export class CodeNoteController {
   ) {
     this.noteDecorations = this.editor.createDecorationsCollection();
     this.addDecoration = this.editor.createDecorationsCollection();
-
-    this.inlineLayer = document.createElement('div');
-    this.inlineLayer.className = 'code-note-inline-layer';
-    this.stage.appendChild(this.inlineLayer);
+    this.inlineNoteDecorations = this.editor.createDecorationsCollection();
+    this.inlineAddDecoration = this.editor.createDecorationsCollection();
 
     this.popover = document.createElement('div');
     this.popover.className = 'code-note-popover';
@@ -113,23 +114,59 @@ export class CodeNoteController {
       this.repositionPopover();
     });
     this.editor.onDidScrollChange(() => {
-      this.renderInlineMarkers();
       this.repositionPopover();
     });
     this.editor.onDidLayoutChange(() => {
-      this.renderInlineMarkers();
       this.repositionPopover();
     });
     runtimeEditor.onMouseDown((event) => {
-      if (!this.enabled || event.target.type !== GUTTER_GLYPH_MARGIN) {
+      if (!this.enabled) {
         return;
       }
-      const line = event.target.position?.lineNumber;
-      if (!line) {
+
+      if (event.target.type === GUTTER_GLYPH_MARGIN) {
+        const line = event.target.position?.lineNumber;
+        if (!line) {
+          return;
+        }
+        event.event.preventDefault();
+        this.openGutterAtLine(line);
         return;
       }
-      event.event.preventDefault();
-      this.openGutterAtLine(line);
+
+      const position = event.target.position;
+      if (!position) {
+        return;
+      }
+
+      const injectedElement = event.target.element?.closest<HTMLElement>(
+        '.code-note-injected-existing, .code-note-injected-add',
+      );
+      const isInjectedTextTarget = Boolean(
+        injectedElement || event.target.detail?.mightBeForeignElement,
+      );
+      if (!isInjectedTextTarget) {
+        return;
+      }
+
+      const note = this.inlineNoteNearPosition(position.lineNumber, position.column);
+      if (note) {
+        event.event.preventDefault();
+        this.openInlineAtPosition(note.line, note.column, note);
+        return;
+      }
+
+      // “＋” 只会渲染在当前光标位置。mouseDown 发生时光标尚未被 Monaco 移动，
+      // 所以用当前光标作为新增便签的真实锚点，比依赖 injected text 的近似 position 更稳定。
+      const cursor = this.editor.getPosition();
+      if (
+        cursor
+        && cursor.lineNumber === position.lineNumber
+        && Math.abs(cursor.column - position.column) <= 1
+      ) {
+        event.event.preventDefault();
+        this.openInlineAtPosition(cursor.lineNumber, cursor.column);
+      }
     });
 
     this.saveButton.addEventListener('click', () => void this.saveDraft());
@@ -177,14 +214,16 @@ export class CodeNoteController {
     this.close();
     this.noteDecorations.clear();
     this.addDecoration.clear();
-    this.inlineLayer.replaceChildren();
+    this.inlineNoteDecorations.clear();
+    this.inlineAddDecoration.clear();
   }
 
   dispose(): void {
     this.disable();
     this.noteDecorations.clear();
     this.addDecoration.clear();
-    this.inlineLayer.remove();
+    this.inlineNoteDecorations.clear();
+    this.inlineAddDecoration.clear();
     this.popover.remove();
   }
 
@@ -337,74 +376,90 @@ export class CodeNoteController {
   }
 
   private renderInlineMarkers(): void {
-    this.inlineLayer.replaceChildren();
     if (!this.enabled) {
+      this.inlineNoteDecorations.clear();
+      this.inlineAddDecoration.clear();
       return;
     }
 
-    for (const note of this.notes) {
-      if (note.placement !== 'inline') {
-        continue;
-      }
-      const marker = this.createInlineMarker(note.line, note.column, true, this.preview(note.text), note);
-      if (marker) {
-        this.inlineLayer.appendChild(marker);
-      }
-    }
+    const inlineNotes = this.notes.filter((note) => note.placement === 'inline');
+    this.inlineNoteDecorations.set(inlineNotes.map((note) => {
+      const line = this.currentTrackedLine(note.id, note.line);
+      const column = this.clampColumn(line, note.column);
+      return this.inlineInjectedDecoration(
+        line,
+        column,
+        ' 📝 ',
+        'code-note-injected-existing',
+        `📝 **代码便签**\n\n${this.preview(note.text)}`,
+      );
+    }));
 
     const position = this.editor.getPosition();
     if (!position || this.inlineNoteAtPosition(position.lineNumber, position.column)) {
+      this.inlineAddDecoration.clear();
       return;
     }
 
-    const addMarker = this.createInlineMarker(
+    this.inlineAddDecoration.set([this.inlineInjectedDecoration(
       position.lineNumber,
       position.column,
-      false,
-      `在 L${position.lineNumber}:C${position.column} 添加便签`,
-    );
-    if (addMarker) {
-      this.inlineLayer.appendChild(addMarker);
-    }
+      ' ＋ ',
+      'code-note-injected-add',
+      `点击 **＋** 在 L${position.lineNumber}:C${position.column} 添加持久便签`,
+    )]);
   }
 
-  private createInlineMarker(
+  private inlineInjectedDecoration(
     line: number,
     column: number,
-    hasNote: boolean,
-    tooltip: string,
-    note?: CodeNote,
-  ): HTMLButtonElement | null {
-    const point = this.inlineMarkerPoint(line, column);
-    if (!point) {
-      return null;
+    content: string,
+    className: string,
+    hover: string,
+  ): monaco.editor.IModelDeltaDecoration {
+    const model = this.editor.getModel();
+    const runtimeModel = model as RuntimeTextModel | null;
+    const safeColumn = this.clampColumn(line, column);
+    const maxColumn = runtimeModel?.getLineMaxColumn(line) ?? safeColumn;
+    const injected = {
+      content,
+      inlineClassName: className,
+      inlineClassNameAffectsLetterSpacing: true,
+    };
+
+    // Monaco 0.56 对零长度 range 的 injected text 命中与渲染不够稳定。
+    // 尽量把装饰绑定到真实字符，再用 before/after 把便签插在锚点处；
+    // 源文件本身仍然完全不会增加任何字符。
+    if (safeColumn < maxColumn) {
+      return {
+        range: new monaco.Range(line, safeColumn, line, safeColumn + 1),
+        options: {
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          hoverMessage: { value: hover },
+          before: injected,
+        },
+      };
     }
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = hasNote
-      ? 'code-note-inline-marker has-note'
-      : 'code-note-inline-marker add-note';
-    button.textContent = hasNote ? '📝' : '＋';
-    button.title = tooltip;
-    button.setAttribute(
-      'aria-label',
-      hasNote
-        ? `打开第 ${line} 行第 ${column} 列便签`
-        : `在第 ${line} 行第 ${column} 列添加便签`,
-    );
-    button.style.left = `${point.left}px`;
-    button.style.top = `${point.top}px`;
-    button.addEventListener('mousedown', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.openInlineAtPosition(line, column, note);
-    });
-    return button;
+    if (safeColumn > 1) {
+      return {
+        range: new monaco.Range(line, safeColumn - 1, line, safeColumn),
+        options: {
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          hoverMessage: { value: hover },
+          after: injected,
+        },
+      };
+    }
+
+    return {
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        hoverMessage: { value: hover },
+        before: injected,
+      },
+    };
   }
 
   private inlineMarkerPoint(line: number, column: number): { left: number; top: number } | null {
@@ -451,6 +506,14 @@ export class CodeNoteController {
       note.placement === 'inline'
       && this.currentTrackedLine(note.id, note.line) === line
       && note.column === column
+    ));
+  }
+
+  private inlineNoteNearPosition(line: number, column: number): CodeNote | undefined {
+    return this.notes.find((note) => (
+      note.placement === 'inline'
+      && this.currentTrackedLine(note.id, note.line) === line
+      && Math.abs(note.column - column) <= 1
     ));
   }
 

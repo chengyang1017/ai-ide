@@ -1461,3 +1461,87 @@ button:disabled {
     display: none;
   }
 }
+
+/* Alpha 0.15：命令区使用完整的上下节奏，标题和按钮都不会贴边。 */
+.ide-shell {
+  grid-template-rows: 40px 60px minmax(0, 1fr) 24px;
+}
+
+.commandbar {
+  padding: 8px 10px 10px;
+}
+
+.command-group {
+  padding: 12px 0 0;
+}
+
+.command-group-label {
+  top: 0;
+  line-height: 9px;
+}
+
+.command-divider {
+  margin-top: 7px;
+  margin-bottom: 1px;
+}
+
+/* Monaco injected text 会真正为便签留出视觉宽度，不再覆盖源代码字符。 */
+.monaco-editor .code-note-injected-existing,
+.monaco-editor .code-note-injected-add {
+  border-radius: 4px;
+  cursor: pointer !important;
+  font-family: Inter, "Segoe UI Emoji", sans-serif !important;
+  font-style: normal !important;
+  font-weight: 700 !important;
+  text-decoration: none !important;
+}
+
+.monaco-editor .code-note-injected-existing {
+  background: rgb(73 80 94 / 42%);
+  color: #d9dce3 !important;
+}
+
+.monaco-editor .code-note-injected-add {
+  background: rgb(71 61 129 / 34%);
+  color: #aaa0ff !important;
+  opacity: .78;
+}
+
+.monaco-editor .code-note-injected-existing:hover,
+.monaco-editor .code-note-injected-add:hover {
+  background: rgb(104 88 210 / 48%);
+  color: #f2efff !important;
+  opacity: 1;
+}
+
+.external-change-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: #e6bf72;
+  font-family: Inter, "Segoe UI", sans-serif;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.external-change-state[hidden] {
+  display: none;
+}
+
+.external-change-state button {
+  min-height: 22px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 9px;
+}
+
+#external-reload {
+  border-color: #6b5ed6;
+  color: #d8d2ff;
+}
+
+#external-keep {
+  border-color: #505764;
+  color: #aeb6c2;
+}

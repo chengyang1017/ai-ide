@@ -20,7 +20,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.13 · 持久代码便签 + 学习标记</small>
+          <small>Alpha 0.15 · 实时文件同步 + 无遮挡代码便签</small>
         </div>
       </div>
 
@@ -95,8 +95,8 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.14</strong>
-          <p>持久便签支持两种锚点同时存在：光标所在的代码位置，或左侧行号旁。旧的行号便签不会消失。</p>
+          <strong>Alpha 0.15</strong>
+          <p>外部编辑器保存后会实时同步；代码内便签使用 Monaco 注入文本留出空间，不再盖住代码。</p>
         </div>
       </aside>
 
@@ -106,6 +106,11 @@ app.innerHTML = `
           <span id="active-file">src/app.ts</span>
           <span id="editor-save-state" class="editor-save-state">✓ 已保存</span>
           <span class="code-note-hint" title="光标位置出现＋可添加代码内便签；行号旁也会出现＋，两种便签可以同时存在">📝 双位置便签</span>
+          <span id="external-change-state" class="external-change-state" hidden>
+            <span>⚠ 外部已修改</span>
+            <button id="external-reload" type="button">重新加载</button>
+            <button id="external-keep" type="button">保留本地</button>
+          </span>
           <span id="workspace-badge" class="tab-badge">Demo</span>
         </div>
 
@@ -182,6 +187,9 @@ const fileTree = requireElement('file-tree');
 const activeFile = requireElement('active-file');
 const editorTabDot = requireElement('editor-tab-dot');
 const editorSaveState = requireElement('editor-save-state');
+const externalChangeState = requireElement('external-change-state');
+const externalReloadButton = requireButton('external-reload');
+const externalKeepButton = requireButton('external-keep');
 const projectName = requireElement('project-name');
 const projectRoot = requireElement('project-root');
 const workspaceBadge = requireElement('workspace-badge');
@@ -279,6 +287,8 @@ let aiTourSequence = 0;
 let aiTourRunning = false;
 let definitionNavigationSequence = 0;
 let fileSaveSequence = 0;
+let externalRefreshSequence = 0;
+let pendingExternalChange: { path: string; content: string } | null = null;
 const expandedDirectories = new Set<string>();
 
 renderFileTree(projectFiles);
@@ -291,6 +301,37 @@ editorController.editor.onDidChangeCursorPosition((event) => {
 editorController.onDirtyStateChanged(() => {
   updateEditorSaveState();
   updateFileTreeSelection(false);
+});
+
+window.tutorIde.onProjectFileChanged((change) => {
+  void handleExternalFileChanged(change.path);
+});
+
+externalReloadButton.addEventListener('click', () => {
+  if (!pendingExternalChange || pendingExternalChange.path !== editorController.path) {
+    clearExternalChangeState();
+    return;
+  }
+
+  const change = pendingExternalChange;
+  editorController.replaceFileContentFromDisk({
+    path: change.path,
+    language: languageFromPath(change.path),
+    content: change.content,
+  });
+  clearExternalChangeState();
+  updateActiveFile();
+  tutorStatus.textContent = `↻ 已重新加载外部修改 · ${change.path}`;
+});
+
+externalKeepButton.addEventListener('click', () => {
+  if (!pendingExternalChange) {
+    clearExternalChangeState();
+    return;
+  }
+  const path = pendingExternalChange.path;
+  clearExternalChangeState();
+  tutorStatus.textContent = `保留 IDE 中的未保存内容 · ${path}`;
 });
 
 let ctrlNavigationPressed = false;
@@ -784,6 +825,11 @@ async function saveCurrentFile(): Promise<void> {
     return;
   }
 
+  if (pendingExternalChange?.path === editorController.path) {
+    tutorStatus.textContent = '⚠ 文件已在其他编辑器中修改，请先选择“重新加载”或“保留本地”再保存。';
+    return;
+  }
+
   const sequence = ++fileSaveSequence;
   const path = editorController.path;
   const content = editorController.getCurrentContent();
@@ -1127,6 +1173,7 @@ async function openRealProjectFile(
   replaceWorkspace: boolean,
   revealInTree = true,
 ): Promise<void> {
+  clearExternalChangeState();
   tutorStatus.textContent = `正在打开 ${path}…`;
   const result = await window.tutorIde.readProjectFile(path);
   const file = {
@@ -1142,11 +1189,51 @@ async function openRealProjectFile(
   }
 
   await codeNoteController.openFile(file.path);
+  await window.tutorIde.watchProjectFile(file.path);
   updateActiveFile();
   updateFileTreeSelection(revealInTree);
   tutorStatus.textContent = editorController.isDirty()
     ? `已打开 ${path} · 保留未保存修改`
     : `已打开 ${path}`;
+}
+
+async function handleExternalFileChanged(path: string): Promise<void> {
+  if (!isRealProject || path !== editorController.path) {
+    return;
+  }
+
+  const sequence = ++externalRefreshSequence;
+  try {
+    const result = await window.tutorIde.readProjectFile(path);
+    if (sequence !== externalRefreshSequence || result.path !== editorController.path) {
+      return;
+    }
+
+    if (editorController.isDirty(result.path)) {
+      pendingExternalChange = { path: result.path, content: result.content };
+      externalChangeState.hidden = false;
+      tutorStatus.textContent = `⚠ ${result.path} 已在其他编辑器中修改；本地还有未保存内容，未自动覆盖。`;
+      return;
+    }
+
+    editorController.replaceFileContentFromDisk({
+      path: result.path,
+      language: languageFromPath(result.path),
+      content: result.content,
+    });
+    clearExternalChangeState();
+    updateActiveFile();
+    tutorStatus.textContent = `↻ 已实时同步外部修改 · ${result.path}`;
+  } catch (error) {
+    if (sequence === externalRefreshSequence) {
+      tutorStatus.textContent = `外部文件同步失败：${errorMessage(error)}`;
+    }
+  }
+}
+
+function clearExternalChangeState(): void {
+  pendingExternalChange = null;
+  externalChangeState.hidden = true;
 }
 
 function updateActiveFile(): void {
