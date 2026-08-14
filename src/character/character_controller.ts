@@ -109,9 +109,12 @@ export class CharacterController {
     this.character.classList.remove('offscreen');
     this.character.classList.toggle('jumping', animate);
 
-    const x = Math.max(8, position.left + 14);
-    const y = Math.max(8, position.top - 58);
-    this.character.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    // Alpha 0.11：角色不再覆盖在 Monaco 代码字符上。
+    // 它住在编辑器右侧独立 Tutor Rail，只同步目标代码的垂直位置。
+    const railHeight = this.character.parentElement?.clientHeight ?? 0;
+    const maxY = Math.max(8, railHeight - 96);
+    const y = Math.min(Math.max(8, position.top - 28), maxY);
+    this.character.style.transform = `translate3d(8px, ${y}px, 0)`;
 
     if (animate) {
       window.setTimeout(() => this.character.classList.remove('jumping'), 520);

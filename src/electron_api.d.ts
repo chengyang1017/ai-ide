@@ -46,6 +46,10 @@ declare global {
         path: string;
         content: string;
       }>;
+      writeProjectFile(relativePath: string, content: string): Promise<{
+        path: string;
+        bytes: number;
+      }>;
       searchProject(query: string): Promise<Array<{
         path: string;
         line: number;

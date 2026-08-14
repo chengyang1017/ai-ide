@@ -13,6 +13,8 @@ export class EditorController {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
 
   private readonly models = new Map<string, monaco.editor.ITextModel>();
+  private readonly savedValues = new Map<string, string>();
+  private readonly dirtyListeners = new Set<(path: string, dirty: boolean) => void>();
   private currentPath = '';
   private highlightCollection: monaco.editor.IEditorDecorationsCollection;
 
@@ -58,6 +60,7 @@ export class EditorController {
     this.currentPath = path;
     this.editor.setModel(model);
     this.highlightCollection.clear();
+    this.emitDirtyState();
   }
 
   openFileContent(file: EditorFile): void {
@@ -65,14 +68,20 @@ export class EditorController {
 
     if (!model) {
       model = this.registerModel(file);
-    } else if (model.getValue() !== file.content) {
-      model.setValue(file.content);
+    } else {
+      // 如果这个文件在 IDE 里还有未保存修改，切换回来时必须保留内存版本，
+      // 不能再次从磁盘读取后把用户刚写的代码覆盖掉。
+      if (!this.isDirty(file.path) && model.getValue() !== file.content) {
+        this.savedValues.set(file.path, file.content);
+        model.setValue(file.content);
+      }
       monaco.editor.setModelLanguage(model, file.language);
     }
 
     this.currentPath = file.path;
     this.editor.setModel(model);
     this.highlightCollection.clear();
+    this.emitDirtyState();
   }
 
   replaceWorkspace(file: EditorFile): void {
@@ -82,10 +91,43 @@ export class EditorController {
       model.dispose();
     }
     this.models.clear();
+    this.savedValues.clear();
 
     const model = this.registerModel(file);
     this.currentPath = file.path;
     this.editor.setModel(model);
+    this.emitDirtyState();
+  }
+
+  getCurrentContent(): string {
+    return this.editor.getModel()?.getValue() ?? '';
+  }
+
+  isDirty(path = this.currentPath): boolean {
+    const model = this.models.get(path);
+    if (!model) {
+      return false;
+    }
+    return model.getValue() !== (this.savedValues.get(path) ?? model.getValue());
+  }
+
+  markSaved(path = this.currentPath, savedContent?: string): void {
+    const model = this.models.get(path);
+    if (!model) {
+      return;
+    }
+    // 保存是异步的：如果用户在磁盘写入期间继续输入，baseline 必须对应
+    // 真正写到磁盘的那份快照，而不是保存完成瞬间的最新内存内容。
+    this.savedValues.set(path, savedContent ?? model.getValue());
+    if (path === this.currentPath) {
+      this.emitDirtyState();
+    }
+  }
+
+  onDirtyStateChanged(listener: (path: string, dirty: boolean) => void): () => void {
+    this.dirtyListeners.add(listener);
+    listener(this.currentPath, this.isDirty());
+    return () => this.dirtyListeners.delete(listener);
   }
 
   reveal(line: number, column: number): void {
@@ -152,6 +194,29 @@ export class EditorController {
       query: word.word,
       line: position.lineNumber,
       column: position.column,
+    };
+  }
+
+  getSemanticFocusAtPosition(line: number, column: number): SemanticFocus | null {
+    const model = this.editor.getModel();
+    if (!model || !this.currentPath.toLowerCase().endsWith('.dart')) {
+      return null;
+    }
+
+    const lineCount = Math.max(1, model.getValue().split(/\r?\n/).length);
+    const safeLine = Math.max(1, Math.min(line, lineCount));
+    const safeColumn = Math.max(1, Math.min(column, model.getLineContent(safeLine).length + 1));
+    const word = model.getWordAtPosition({ lineNumber: safeLine, column: safeColumn });
+    if (!word?.word) {
+      return null;
+    }
+
+    return {
+      filePath: this.currentPath,
+      line: safeLine,
+      column: safeColumn,
+      query: word.word,
+      documentText: model.getValue(),
     };
   }
 
@@ -274,8 +339,17 @@ export class EditorController {
   dispose(): void {
     this.highlightCollection.clear();
     this.editor.dispose();
+    this.dirtyListeners.clear();
     for (const model of this.models.values()) {
       model.dispose();
+    }
+    this.savedValues.clear();
+  }
+
+  private emitDirtyState(): void {
+    const dirty = this.isDirty();
+    for (const listener of this.dirtyListeners) {
+      listener(this.currentPath, dirty);
     }
   }
 
@@ -285,7 +359,16 @@ export class EditorController {
     existing?.dispose();
 
     const model = monaco.editor.createModel(file.content, file.language, uri);
+    const observableModel = model as unknown as {
+      onDidChangeContent(listener: () => void): { dispose(): void };
+    };
+    observableModel.onDidChangeContent(() => {
+      if (this.currentPath === file.path) {
+        this.emitDirtyState();
+      }
+    });
     this.models.set(file.path, model);
+    this.savedValues.set(file.path, file.content);
     return model;
   }
 

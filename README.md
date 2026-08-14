@@ -1,6 +1,17 @@
-# AI Code Tutor IDE — Alpha 0.10
+# AI Code Tutor IDE — Alpha 0.11
 
 一个独立桌面代码编辑器原型。核心目标不是做“右侧 AI 聊天框”，而是让动画 AI 导师直接生活在代码区域里，并能够沿真实项目调用链跨文件跳着讲。
+
+
+## Alpha 0.11 新增：真实保存 + Ctrl+Click + Tutor Rail
+
+1. Monaco 中的修改现在可以通过 `Ctrl+S` 真正写回当前项目里的原文件。
+2. 当前文件修改后显示 `● 未保存 · Ctrl+S`，保存成功后恢复 `✓ 已保存`。
+3. 切换到别的文件再回来时，会保留尚未保存的 Monaco 内存版本，不会被磁盘旧内容覆盖。
+4. Dart 文件支持 `Ctrl+Click`：点击调用、类、字段或变量符号时，使用 Dart Analysis Server 的语义 Definition 跳到真实定义位置。
+5. Ctrl+Click 可以跨文件，跳转后自动展开文件树目标路径并把光标定位到目标行。
+6. AI 角色从 Monaco 代码表面移到右侧独立 **Tutor Rail**；仍然跟随目标代码行上下移动，但身体和气泡不再盖住代码字符。
+7. Tutor Rail 与代码区域并排布局，代码本身获得真实可用宽度，不依赖透明覆盖层。
 
 ## Alpha 0.10 新增：Windows 原生语音 + 启动恢复
 
@@ -48,7 +59,7 @@ npm run typecheck
 npm run dev
 ```
 
-Alpha 0.10 没有新增 npm 包，所以从 Alpha 0.9 升级不需要重新 `npm install`。
+Alpha 0.11 没有新增 npm 包，所以从 Alpha 0.10 升级不需要重新 `npm install`。
 
 Dart 语义分析依赖本机 Dart SDK：
 
@@ -56,36 +67,18 @@ Dart 语义分析依赖本机 Dart SDK：
 dart --version
 ```
 
-## Alpha 0.10 重点测试
+## Alpha 0.11 重点测试
 
-第一次运行：
+先验证编辑与保存：
 
-1. `📂 打开项目`，打开一个真实项目。
-2. `🔑 API Key`，输入 Key 并点击“加密保存到本机”。
-3. 选择语音语言。
-4. 在新增的 voice 下拉框里选择一个具体声音。
-5. 点击 `🤖 老师跳到光标`，确认角色用所选声音朗读。
-6. 正常关闭 IDE。
+1. 打开真实项目中的一个 `.dart` 文件。
+2. 修改一行代码，确认标签显示 `● 未保存 · Ctrl+S`。
+3. 按 `Ctrl+S`，确认状态恢复 `✓ 已保存`。
+4. 用 VS Code / 记事本重新打开同一个原文件，确认修改真的已经写进磁盘。
+5. 在 Dart 方法调用、类名、字段或变量上按住 `Ctrl` 点击，确认跳到真实 Definition；如果定义在别的文件，会自动跨文件打开。
+6. 让角色跳到几个不同代码行，确认角色只在右侧 Tutor Rail 上下移动，始终不遮挡 Monaco 代码。
 
-第二次运行：
-
-```bash
-npm run dev
-```
-
-理想结果：
-
-```text
-自动恢复上次项目
-        +
-自动恢复上次文件
-        +
-语音语言 / voice / 语速保持
-        +
-API Key 按钮直接显示已保存
-```
-
-不应该再次要求选择项目或重新输入 API Key。
+Alpha 0.10 的会话恢复仍然保留：关闭再执行 `npm run dev`，应自动恢复上次项目、文件、语音设置和加密保存的 API Key。
 
 ## Windows 原生语音链
 
@@ -139,13 +132,15 @@ Windows DPAPI
 ```text
 真实项目文件树
 + Monaco Editor
-+ 角色覆盖在代码区域
++ 右侧 Tutor Rail 角色（跟随代码行但不遮挡代码）
 + 项目级文本导航
 + Dart Definition / References / Call Hierarchy
 + AI 组织真实语义教学链
 + 角色跨文件跳跃
 + Windows 原生 TTS
 + 会话恢复
++ Ctrl+S 真实磁盘保存
++ Dart Ctrl+Click 语义跳转
 ```
 
 ## 当前限制
@@ -153,4 +148,5 @@ Windows DPAPI
 - 完整语义语言目前仍以 Dart / Flutter 为主。
 - Windows 原生 TTS 只能使用 Windows SpeechSynthesizer 真正枚举到的系统语音；Narrator 专用 voice 是否可供普通应用使用仍由 Windows 决定。
 - 尚未做麦克风语音提问和“等等 / 继续 / 上一个”等语音控制。
-- 尚未做完整编辑器保存、终端、调试器和 Git UI。
+- 已支持当前文件 Ctrl+S 真实保存，但尚未做“另存为”、关闭未保存确认、外部文件冲突处理。
+- 尚未做终端、运行/编译、调试器和 Git UI。

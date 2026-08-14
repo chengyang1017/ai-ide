@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('tutorIde', {
   openProject: () => ipcRenderer.invoke('project:open'),
   restoreProject: () => ipcRenderer.invoke('project:restore'),
   readProjectFile: (relativePath) => ipcRenderer.invoke('project:read-file', relativePath),
+  writeProjectFile: (relativePath, content) => ipcRenderer.invoke('project:write-file', relativePath, content),
   searchProject: (query) => ipcRenderer.invoke('project:search', query),
   findDartSemanticTargets: (focus) => ipcRenderer.invoke('semantic:dart-targets', focus),
   getAppState: () => ipcRenderer.invoke('app:get-state'),

@@ -19,7 +19,7 @@ app.innerHTML = `
         <span class="brand-mark">AI</span>
         <div>
           <strong>Code Tutor IDE</strong>
-          <small>Alpha 0.10 · 原生语音 + 会话恢复</small>
+          <small>Alpha 0.11 · 真实保存 + Ctrl+Click + Tutor Rail</small>
         </div>
       </div>
       <div class="titlebar-actions">
@@ -59,35 +59,39 @@ app.innerHTML = `
         <div id="file-tree" class="file-tree"></div>
 
         <div class="sidebar-note">
-          <strong>Alpha 0.10</strong>
-          <p>Windows 版优先使用 Windows.Media.SpeechSynthesis 原生语音，并支持语言 + 具体声音选择。IDE 会自动恢复上次项目、文件、语音设置，并用系统安全存储加密保存 API Key。</p>
+          <strong>Alpha 0.11</strong>
+          <p>Monaco 修改现在可以用 Ctrl+S 真正写回原文件；Dart 支持 Ctrl+Click 语义跳转；角色移动到独立 Tutor Rail，不再盖住代码字符。</p>
         </div>
       </aside>
 
       <main class="editor-pane">
         <div class="editor-tabbar">
-          <span class="editor-tab-dot"></span>
+          <span id="editor-tab-dot" class="editor-tab-dot" data-dirty="false"></span>
           <span id="active-file">src/app.ts</span>
+          <span id="editor-save-state" class="editor-save-state">✓ 已保存</span>
           <span id="workspace-badge" class="tab-badge">Demo</span>
         </div>
 
         <div id="editor-stage" class="editor-stage">
           <div id="editor" class="editor"></div>
 
-          <div id="tutor-character" class="tutor-character offscreen" data-action="jump">
-            <div class="speech-bubble" id="speech-bubble"></div>
-            <div class="robot-shadow"></div>
-            <div class="robot">
-              <div class="antenna"><span></span></div>
-              <div class="head">
-                <span class="eye left"></span>
-                <span class="eye right"></span>
-                <span class="mouth"></span>
+          <aside id="tutor-rail" class="tutor-rail" aria-label="AI Tutor activity rail">
+            <div class="tutor-rail-label">AI TUTOR</div>
+            <div id="tutor-character" class="tutor-character offscreen" data-action="jump">
+              <div class="speech-bubble" id="speech-bubble"></div>
+              <div class="robot-shadow"></div>
+              <div class="robot">
+                <div class="antenna"><span></span></div>
+                <div class="head">
+                  <span class="eye left"></span>
+                  <span class="eye right"></span>
+                  <span class="mouth"></span>
+                </div>
+                <div class="body"><span>AI</span></div>
+                <div class="arm"></div>
               </div>
-              <div class="body"><span>AI</span></div>
-              <div class="arm"></div>
             </div>
-          </div>
+          </aside>
         </div>
       </main>
     </div>
@@ -139,6 +143,8 @@ const bubbleElement = requireElement('speech-bubble');
 const tutorStatus = requireElement('tutor-status');
 const fileTree = requireElement('file-tree');
 const activeFile = requireElement('active-file');
+const editorTabDot = requireElement('editor-tab-dot');
+const editorSaveState = requireElement('editor-save-state');
 const projectName = requireElement('project-name');
 const projectRoot = requireElement('project-root');
 const workspaceBadge = requireElement('workspace-badge');
@@ -164,7 +170,27 @@ const apiKeyCancelButton = requireButton('api-key-cancel');
 const apiKeyClearButton = requireButton('api-key-clear');
 const apiKeySaveButton = requireButton('api-key-save');
 
+interface RuntimeMonacoMouseEvent {
+  event: {
+    ctrlKey: boolean;
+    preventDefault(): void;
+  };
+  target: {
+    position?: {
+      lineNumber: number;
+      column: number;
+    } | null;
+  };
+}
+
+interface RuntimeMonacoEditor {
+  onMouseDown(listener: (event: RuntimeMonacoMouseEvent) => void): { dispose(): void };
+  setPosition(position: { lineNumber: number; column: number }): void;
+  focus(): void;
+}
+
 const editorController = new EditorController(editorElement, demoFiles);
+const runtimeEditor = editorController.editor as unknown as RuntimeMonacoEditor;
 let preferredVoiceLanguage = 'zh-CN';
 let preferredVoiceId = '';
 let preferredVoiceRate = 1;
@@ -206,6 +232,8 @@ let semanticAiTourSequence = 0;
 let semanticAiTourRunning = false;
 let aiTourSequence = 0;
 let aiTourRunning = false;
+let definitionNavigationSequence = 0;
+let fileSaveSequence = 0;
 const expandedDirectories = new Set<string>();
 
 renderFileTree(projectFiles);
@@ -213,6 +241,30 @@ updateActiveFile();
 
 editorController.editor.onDidChangeCursorPosition((event) => {
   positionStatus.textContent = `Ln ${event.position.lineNumber}, Col ${event.position.column}`;
+});
+
+editorController.onDirtyStateChanged(() => {
+  updateEditorSaveState();
+  updateFileTreeSelection(false);
+});
+
+runtimeEditor.onMouseDown((event) => {
+  if (!event.event.ctrlKey || !event.target.position) {
+    return;
+  }
+
+  event.event.preventDefault();
+  void navigateToDartDefinition(
+    event.target.position.lineNumber,
+    event.target.position.column,
+  );
+});
+
+window.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    void saveCurrentFile();
+  }
 });
 
 openProjectButton.addEventListener('click', async () => {
@@ -633,6 +685,90 @@ aiTourButton.addEventListener('click', async () => {
   }
 });
 
+async function saveCurrentFile(): Promise<void> {
+  if (!isRealProject) {
+    tutorStatus.textContent = '演示文件不会写入磁盘；请先打开真实项目。';
+    return;
+  }
+
+  if (!editorController.isDirty()) {
+    tutorStatus.textContent = `✓ ${editorController.path} 已经是最新保存状态`;
+    return;
+  }
+
+  const sequence = ++fileSaveSequence;
+  const path = editorController.path;
+  const content = editorController.getCurrentContent();
+  tutorStatus.textContent = `正在保存 ${path}…`;
+  editorSaveState.textContent = '保存中…';
+
+  try {
+    const result = await window.tutorIde.writeProjectFile(path, content);
+    if (sequence !== fileSaveSequence) {
+      return;
+    }
+    editorController.markSaved(result.path, content);
+    tutorStatus.textContent = `✓ 已真正写回 ${result.path} · ${result.bytes} bytes`;
+  } catch (error) {
+    if (sequence === fileSaveSequence) {
+      tutorStatus.textContent = errorMessage(error);
+      updateEditorSaveState();
+    }
+  }
+}
+
+async function navigateToDartDefinition(line: number, column: number): Promise<void> {
+  if (!isRealProject) {
+    tutorStatus.textContent = 'Ctrl+Click 语义跳转只对真实项目启用。';
+    return;
+  }
+
+  const focus = editorController.getSemanticFocusAtPosition(line, column);
+  if (!focus) {
+    if (editorController.path.toLowerCase().endsWith('.dart')) {
+      tutorStatus.textContent = 'Ctrl+Click：这里没有可跳转的 Dart 符号。';
+    }
+    return;
+  }
+
+  const sequence = ++definitionNavigationSequence;
+  stopRelatedTour('已切换到 Ctrl+Click 语义跳转');
+  stopSemanticTour('已切换到 Ctrl+Click 语义跳转');
+  stopSemanticAiTour('已切换到 Ctrl+Click 语义跳转');
+  stopAiTour('已切换到 Ctrl+Click 语义跳转');
+  characterController.clear('Ctrl+Click 语义跳转');
+  tutorStatus.textContent = `Dart Analyzer 正在查找 “${focus.query}” 的定义…`;
+
+  try {
+    const result = await window.tutorIde.findDartSemanticTargets(focus);
+    if (sequence !== definitionNavigationSequence) {
+      return;
+    }
+
+    const target = result.locations.find((location) => location.kind === 'definition');
+    if (!target) {
+      tutorStatus.textContent = `Dart Analyzer 没有找到 “${focus.query}” 的定义。`;
+      return;
+    }
+
+    if (target.path !== editorController.path) {
+      await openRealProjectFile(target.path, false, true);
+    }
+
+    editorController.reveal(target.line, target.column);
+    runtimeEditor.setPosition({
+      lineNumber: target.line,
+      column: target.column,
+    });
+    runtimeEditor.focus();
+    tutorStatus.textContent = `↪ Ctrl+Click：${focus.query} → ${target.path}:${target.line}`;
+  } catch (error) {
+    if (sequence === definitionNavigationSequence) {
+      tutorStatus.textContent = errorMessage(error);
+    }
+  }
+}
+
 function stopRelatedTour(message: string): void {
   characterController.stopSpeech();
   relatedTourSequence += 1;
@@ -918,11 +1054,21 @@ async function openRealProjectFile(
 
   updateActiveFile();
   updateFileTreeSelection(revealInTree);
-  tutorStatus.textContent = `已打开 ${path}`;
+  tutorStatus.textContent = editorController.isDirty()
+    ? `已打开 ${path} · 保留未保存修改`
+    : `已打开 ${path}`;
 }
 
 function updateActiveFile(): void {
   activeFile.textContent = editorController.path;
+  updateEditorSaveState();
+}
+
+function updateEditorSaveState(): void {
+  const dirty = isRealProject && editorController.isDirty();
+  editorTabDot.dataset.dirty = String(dirty);
+  editorSaveState.dataset.dirty = String(dirty);
+  editorSaveState.textContent = dirty ? '● 未保存 · Ctrl+S' : '✓ 已保存';
 }
 
 function updateFileTreeSelection(revealInTree = false): void {
@@ -932,8 +1078,10 @@ function updateFileTreeSelection(revealInTree = false): void {
 
   let activeItem: HTMLButtonElement | null = null;
   for (const item of fileTree.querySelectorAll<HTMLButtonElement>('.file-item')) {
-    const active = item.dataset.path === editorController.path;
+    const itemPath = item.dataset.path ?? '';
+    const active = itemPath === editorController.path;
     item.dataset.active = String(active);
+    item.dataset.dirty = String(editorController.isDirty(itemPath));
     if (active) {
       activeItem = item;
     }

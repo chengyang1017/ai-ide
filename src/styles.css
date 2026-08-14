@@ -832,3 +832,120 @@ button:disabled {
     min-width: 138px;
   }
 }
+
+/* Alpha 0.11：真实编辑保存 + Ctrl+Click + 不遮挡代码的 Tutor Rail。 */
+.editor-tab-dot[data-dirty="true"] {
+  background: #ffb454;
+  box-shadow: 0 0 8px rgb(255 180 84 / 45%);
+}
+
+.editor-save-state {
+  margin-left: 4px;
+  color: #788190;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+}
+
+.editor-save-state[data-dirty="true"] {
+  color: #ffbe6f;
+}
+
+.file-item[data-dirty="true"]::after {
+  content: "●";
+  margin-left: auto;
+  color: #ffb454;
+  font-size: 9px;
+}
+
+.editor-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  background: #111318;
+}
+
+.editor {
+  position: relative;
+  inset: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tutor-rail {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid #292e37;
+  background:
+    linear-gradient(180deg, rgb(124 92 255 / 5%), transparent 22%),
+    #14171d;
+}
+
+.tutor-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgb(255 255 255 / 2%) 1px, transparent 1px);
+  background-size: 100% 24px;
+}
+
+.tutor-rail-label {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 1;
+  color: #555f6f;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.tutor-character {
+  width: 286px;
+  height: 88px;
+}
+
+.tutor-character::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 42px;
+  width: 10px;
+  border-top: 1px solid #7c5cff;
+  opacity: .85;
+}
+
+.tutor-character::after {
+  content: "◀";
+  position: absolute;
+  left: 3px;
+  top: 34px;
+  color: #8f83ff;
+  font-size: 10px;
+}
+
+.speech-bubble {
+  left: 72px;
+  top: 5px;
+  bottom: auto;
+  width: 204px;
+  max-height: 78px;
+  overflow: auto;
+  border-radius: 4px 11px 11px 11px;
+}
+
+@media (max-width: 1180px) {
+  .editor-stage {
+    grid-template-columns: minmax(0, 1fr) 250px;
+  }
+
+  .tutor-character {
+    width: 238px;
+  }
+
+  .speech-bubble {
+    width: 158px;
+    font-size: 11px;
+  }
+}

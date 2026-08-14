@@ -150,6 +150,46 @@ ipcMain.handle('project:read-file', async (_event, relativePath) => {
 });
 
 
+ipcMain.handle('project:write-file', async (_event, relativePath, rawContent) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  if (typeof relativePath !== 'string' || relativePath.length === 0) {
+    throw new Error('文件路径无效。');
+  }
+
+  if (typeof rawContent !== 'string') {
+    throw new Error('要保存的文件内容无效。');
+  }
+
+  const normalizedPath = normalizeRelativePath(relativePath);
+  if (!currentProjectFiles.includes(normalizedPath)) {
+    throw new Error('只能保存当前已打开项目中的代码文件。');
+  }
+
+  const byteLength = Buffer.byteLength(rawContent, 'utf8');
+  if (byteLength > MAX_TEXT_FILE_BYTES) {
+    throw new Error('这个文件超过 2 MB，Alpha 0.11 暂不直接保存。');
+  }
+
+  const targetPath = resolveInsideProject(currentProjectRoot, normalizedPath);
+  const stat = await fs.stat(targetPath);
+  if (!stat.isFile()) {
+    throw new Error('目标不是文件。');
+  }
+
+  await fs.writeFile(targetPath, rawContent, 'utf8');
+  persistentState.lastOpenFile = normalizedPath;
+  await savePersistentState();
+
+  return {
+    path: normalizedPath,
+    bytes: byteLength,
+  };
+});
+
+
 ipcMain.handle('project:search', async (_event, rawQuery) => {
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
