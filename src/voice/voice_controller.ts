@@ -1,12 +1,15 @@
-import type { NativeVoiceInfo } from '../electron_api';
-
 export interface VoiceControllerOptions {
   character: HTMLElement;
   onStateChange?: (state: VoiceState, message: string) => void;
   onVoicesChanged?: (languages: VoiceLanguageOption[]) => void;
 }
 
-export type VoiceState = 'idle' | 'speaking' | 'paused' | 'disabled' | 'error';
+export type VoiceState =
+  | 'idle'
+  | 'speaking'
+  | 'paused'
+  | 'disabled'
+  | 'error';
 
 export interface VoiceLanguageOption {
   code: string;
@@ -22,7 +25,10 @@ export interface TutorVoiceOption {
   gender: string;
 }
 
-const LANGUAGE_PRESETS: Array<{ code: string; label: string }> = [
+const LANGUAGE_PRESETS: Array<{
+  code: string;
+  label: string;
+}> = [
   { code: 'zh-CN', label: '中文（简体）' },
   { code: 'zh-TW', label: '中文（繁體）' },
   { code: 'en-US', label: 'English (US)' },
@@ -41,11 +47,18 @@ const LANGUAGE_PRESETS: Array<{ code: string; label: string }> = [
 ];
 
 /**
- * Alpha 0.10：Windows 原生 TTS 优先。
+ * Alpha 0.18 compatibility wrapper using the original Alpha 0.8 voice engine.
  *
- * Windows 上通过 Electron Main 调用 Windows.Media.SpeechSynthesis，避免 Chromium
- * speechSynthesis 看不到 Narrator / 系统已安装声音的问题。非 Windows 环境仍保留
- * Web Speech 作为开发期 fallback。
+ * Voice playback intentionally returns to the earliest implementation:
+ * - Renderer / Chromium speechSynthesis only
+ * - one SpeechSynthesisUtterance per tutor speech
+ * - no WindowsTtsBridge
+ * - no audio-base64 synthesis
+ * - no sentence chunk queue
+ * - no pre-generation
+ *
+ * The newer language / voice-selection API is kept so the current UI
+ * can continue to compile and work.
  */
 export class VoiceController {
   private enabled = true;
@@ -53,44 +66,70 @@ export class VoiceController {
   private selectedVoiceId = '';
   private selectedLanguage = 'zh-CN';
   private sequence = 0;
-  private nativeVoices: NativeVoiceInfo[] = [];
-  private nativeReady = false;
-  private currentAudio: HTMLAudioElement | null = null;
-  private currentUtterance: SpeechSynthesisUtterance | null = null;
-  private resolveCurrent: (() => void) | null = null;
-  private readonly character: HTMLElement;
-  private readonly onStateChange?: VoiceControllerOptions['onStateChange'];
-  private readonly onVoicesChanged?: VoiceControllerOptions['onVoicesChanged'];
 
-  constructor(options: VoiceControllerOptions) {
+  private currentUtterance:
+    | SpeechSynthesisUtterance
+    | null = null;
+
+  private resolveCurrent:
+    | (() => void)
+    | null = null;
+
+  private readonly character: HTMLElement;
+
+  private readonly onStateChange?:
+    VoiceControllerOptions['onStateChange'];
+
+  private readonly onVoicesChanged?:
+    VoiceControllerOptions['onVoicesChanged'];
+
+  constructor(
+    options: VoiceControllerOptions,
+  ) {
     this.character = options.character;
-    this.onStateChange = options.onStateChange;
-    this.onVoicesChanged = options.onVoicesChanged;
+    this.onStateChange =
+      options.onStateChange;
+    this.onVoicesChanged =
+      options.onVoicesChanged;
   }
 
   async initialize(): Promise<void> {
-    try {
-      this.nativeVoices = await window.tutorIde.listNativeVoices();
-      this.nativeReady = this.nativeVoices.length > 0;
-    } catch (error) {
-      this.nativeVoices = [];
-      this.nativeReady = false;
-      console.warn('Windows native TTS unavailable:', error);
+    if (!this.isSupported()) {
+      this.setState(
+        'error',
+        '当前 Electron 环境不支持系统语音',
+      );
+      this.emitVoicesChanged();
+      return;
     }
 
-    if (!this.nativeReady && this.isWebSpeechSupported()) {
-      window.speechSynthesis.addEventListener('voiceschanged', () => this.emitVoicesChanged());
-      window.setTimeout(() => this.emitVoicesChanged(), 0);
-    }
+    window.speechSynthesis.addEventListener(
+      'voiceschanged',
+      () => {
+        this.emitVoicesChanged();
+      },
+    );
+
+    // Chromium 的 voice 列表有时不会在构造后立即准备好。
+    window.setTimeout(() => {
+      this.emitVoicesChanged();
+    }, 0);
 
     this.emitVoicesChanged();
+
     if (this.enabled) {
-      this.setState('idle', this.languageStatusMessage());
+      this.setState(
+        'idle',
+        this.languageStatusMessage(),
+      );
     }
   }
 
   get isEnabled(): boolean {
-    return this.enabled && this.isSupported();
+    return (
+      this.enabled &&
+      this.isSupported()
+    );
   }
 
   get currentRate(): number {
@@ -106,370 +145,667 @@ export class VoiceController {
   }
 
   isSupported(): boolean {
-    return this.nativeReady || this.isWebSpeechSupported();
+    return (
+      'speechSynthesis' in window &&
+      'SpeechSynthesisUtterance' in window
+    );
   }
 
-  setEnabled(enabled: boolean): void {
+  setEnabled(
+    enabled: boolean,
+  ): void {
     this.enabled = enabled;
+
     if (!enabled) {
       this.stop();
-      this.setState('disabled', '语音已关闭');
+
+      this.setState(
+        'disabled',
+        '语音已关闭',
+      );
+
       return;
     }
 
     if (!this.isSupported()) {
-      this.setState('error', '没有可用的系统语音引擎');
+      this.setState(
+        'error',
+        '当前 Electron 环境不支持系统语音',
+      );
+
       return;
     }
 
-    this.setState('idle', this.languageStatusMessage());
+    this.setState(
+      'idle',
+      this.languageStatusMessage(),
+    );
   }
 
-  setRate(rate: number): void {
-    if (!Number.isFinite(rate)) return;
-    this.rate = Math.min(2, Math.max(0.5, rate));
+  setRate(
+    rate: number,
+  ): void {
+    if (!Number.isFinite(rate)) {
+      return;
+    }
+
+    this.rate = Math.min(
+      2,
+      Math.max(0.5, rate),
+    );
   }
 
-  setVoice(id: string): void {
+  setVoice(
+    id: string,
+  ): void {
     this.selectedVoiceId = id;
+
     if (this.enabled) {
-      this.setState('idle', this.languageStatusMessage());
+      this.setState(
+        'idle',
+        this.languageStatusMessage(),
+      );
     }
   }
 
-  setLanguage(language: string): void {
-    const normalized = normalizeLanguageTag(language);
-    if (!normalized) return;
+  setLanguage(
+    language: string,
+  ): void {
+    const normalized =
+      normalizeLanguageTag(language);
+
+    if (!normalized) {
+      return;
+    }
 
     this.selectedLanguage = normalized;
-    const selected = this.resolveVoice();
-    if (this.selectedVoiceId && (!selected || !languageMatches(selected.language, normalized))) {
+
+    const selected =
+      this.resolveVoice();
+
+    if (
+      this.selectedVoiceId &&
+      (
+        !selected ||
+        !languageMatches(
+          selected.lang,
+          normalized,
+        )
+      )
+    ) {
       this.selectedVoiceId = '';
     }
 
     if (this.enabled) {
-      this.setState('idle', this.languageStatusMessage());
+      this.setState(
+        'idle',
+        this.languageStatusMessage(),
+      );
     }
   }
 
-  getVoiceOptions(language = this.selectedLanguage): TutorVoiceOption[] {
+  getVoiceOptions(
+    language = this.selectedLanguage,
+  ): TutorVoiceOption[] {
     return this.getVoices()
-      .filter((voice) => languageMatches(voice.language, language))
-      .map((voice) => ({
-        id: voice.id,
-        name: voice.name,
-        language: voice.language,
-        gender: voice.gender,
-      }));
+      .filter((voice) => {
+        return languageMatches(
+          voice.lang,
+          language,
+        );
+      })
+      .map((voice) => {
+        return {
+          id: voiceIdOf(voice),
+          name: voice.name,
+          language:
+            normalizeLanguageTag(
+              voice.lang,
+            ),
+          gender: '',
+        };
+      });
   }
 
-  getLanguageOptions(): VoiceLanguageOption[] {
-    const voices = this.getVoices();
-    const options = new Map<string, VoiceLanguageOption>();
+  getLanguageOptions():
+    VoiceLanguageOption[] {
+    const voices =
+      this.getVoices();
 
-    for (const preset of LANGUAGE_PRESETS) {
-      const matchingVoices = voices.filter((voice) => languageMatches(voice.language, preset.code));
-      options.set(preset.code, {
-        code: preset.code,
-        label: preset.label,
-        available: matchingVoices.length > 0,
-        voiceCount: matchingVoices.length,
-      });
+    const options =
+      new Map<
+        string,
+        VoiceLanguageOption
+      >();
+
+    for (
+      const preset
+      of LANGUAGE_PRESETS
+    ) {
+      const matchingVoices =
+        voices.filter((voice) => {
+          return languageMatches(
+            voice.lang,
+            preset.code,
+          );
+        });
+
+      options.set(
+        preset.code,
+        {
+          code: preset.code,
+          label: preset.label,
+          available:
+            matchingVoices.length > 0,
+          voiceCount:
+            matchingVoices.length,
+        },
+      );
     }
 
     for (const voice of voices) {
-      const code = normalizeLanguageTag(voice.language);
-      if (!code || options.has(code)) continue;
+      const code =
+        normalizeLanguageTag(
+          voice.lang,
+        );
 
-      const voiceCount = voices.filter((candidate) => languageMatches(candidate.language, code)).length;
-      options.set(code, {
+      if (
+        !code ||
+        options.has(code)
+      ) {
+        continue;
+      }
+
+      const voiceCount =
+        voices.filter((candidate) => {
+          return languageMatches(
+            candidate.lang,
+            code,
+          );
+        }).length;
+
+      options.set(
         code,
-        label: code,
-        available: true,
-        voiceCount,
-      });
+        {
+          code,
+          label: code,
+          available: true,
+          voiceCount,
+        },
+      );
     }
 
-    return [...options.values()];
+    return [
+      ...options.values(),
+    ];
   }
 
-  async speak(text: string): Promise<void> {
-    const content = text.trim();
-    if (!content || !this.enabled) return;
+  /**
+   * Original Alpha 0.8 playback behavior:
+   * one full tutor speech -> one Web Speech utterance.
+   */
+  async speak(
+    text: string,
+  ): Promise<void> {
+    const content =
+      text.trim();
+
+    if (
+      !content ||
+      !this.enabled
+    ) {
+      return;
+    }
 
     if (!this.isSupported()) {
-      this.setState('error', '没有可用的系统语音引擎');
+      this.setState(
+        'error',
+        '当前 Electron 环境不支持系统语音',
+      );
+
       return;
     }
 
-    const voice = this.resolveVoice();
-    if (!voice) {
-      this.setState('error', `${this.languageLabel(this.selectedLanguage)}没有安装可用语音`);
-      return;
+    // A new tutor speech must immediately take ownership of playback.
+    // Resolve the previous speak() first so an interrupted explanation
+    // cannot leave its caller waiting forever.
+    const speechId =
+      this.interruptCurrentSpeech();
+
+    const utterance =
+      new SpeechSynthesisUtterance(
+        content,
+      );
+
+    this.currentUtterance =
+      utterance;
+
+    utterance.rate =
+      this.rate;
+
+    // These were the original Alpha 0.8 values.
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    const voice =
+      this.resolveVoice();
+
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang =
+        voice.lang;
+    } else {
+      utterance.lang =
+        this.selectedLanguage ||
+        'zh-CN';
     }
 
-    if (this.nativeReady) {
-      await this.speakNative(content, voice);
-      return;
-    }
+    await new Promise<void>(
+      (resolve) => {
+        let settled = false;
 
-    await this.speakWeb(content, voice);
+        const finish = () => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+
+          if (
+            this.resolveCurrent ===
+            finish
+          ) {
+            this.resolveCurrent =
+              null;
+          }
+
+          resolve();
+        };
+
+        this.resolveCurrent =
+          finish;
+
+        utterance.onstart = () => {
+          if (
+            speechId !==
+            this.sequence
+          ) {
+            finish();
+            return;
+          }
+
+          this.setState(
+            'speaking',
+            '正在朗读',
+          );
+        };
+
+        utterance.onpause = () => {
+          if (
+            speechId ===
+            this.sequence
+          ) {
+            this.setState(
+              'paused',
+              '语音已暂停',
+            );
+          }
+        };
+
+        utterance.onresume = () => {
+          if (
+            speechId ===
+            this.sequence
+          ) {
+            this.setState(
+              'speaking',
+              '继续朗读',
+            );
+          }
+        };
+
+        utterance.onend = () => {
+          if (
+            speechId ===
+            this.sequence
+          ) {
+            this.currentUtterance =
+              null;
+
+            this.setState(
+              'idle',
+              '等待下一段',
+            );
+          }
+
+          finish();
+        };
+
+        utterance.onerror = (
+          event,
+        ) => {
+          if (
+            speechId ===
+            this.sequence
+          ) {
+            this.currentUtterance =
+              null;
+
+            if (
+              ![
+                'canceled',
+                'interrupted',
+              ].includes(
+                event.error,
+              )
+            ) {
+              this.setState(
+                'error',
+                '系统语音播放失败',
+              );
+            }
+          }
+
+          finish();
+        };
+
+        this.setState(
+          'speaking',
+          '正在朗读',
+        );
+
+        window.speechSynthesis.speak(
+          utterance,
+        );
+      },
+    );
   }
 
   pause(): void {
-    if (this.currentAudio) {
-      this.currentAudio.pause();
-      this.setState('paused', '语音已暂停');
+    if (
+      !this.isSupported() ||
+      !this.currentUtterance
+    ) {
       return;
     }
 
-    if (this.currentUtterance && this.isWebSpeechSupported()) {
-      window.speechSynthesis.pause();
-    }
+    window.speechSynthesis.pause();
   }
 
   resume(): void {
-    if (this.currentAudio) {
-      void this.currentAudio.play();
-      this.setState('speaking', `继续朗读 · ${this.currentVoiceLabel()}`);
+    if (
+      !this.isSupported() ||
+      !this.currentUtterance
+    ) {
       return;
     }
 
-    if (this.currentUtterance && this.isWebSpeechSupported()) {
-      window.speechSynthesis.resume();
-    }
+    window.speechSynthesis.resume();
+  }
+
+  /**
+   * Public interruption entry point for the tutor UI.
+   * It intentionally keeps the original full-utterance voice engine;
+   * it only makes interruption deterministic.
+   */
+  interrupt(): void {
+    this.stop();
   }
 
   stop(): void {
-    this.invalidate();
-
-    if (this.currentAudio) {
-      this.currentAudio.pause();
-      this.currentAudio.removeAttribute('src');
-      this.currentAudio.load();
-      this.currentAudio = null;
-    }
-
-    this.currentUtterance = null;
-    if (this.isWebSpeechSupported()) {
-      window.speechSynthesis.cancel();
-    }
-
-    const resolveCurrent = this.resolveCurrent;
-    this.resolveCurrent = null;
-    resolveCurrent?.();
+    this.interruptCurrentSpeech();
 
     this.setState(
-      this.enabled ? 'idle' : 'disabled',
-      this.enabled ? this.languageStatusMessage() : '语音已关闭',
+      this.enabled
+        ? 'idle'
+        : 'disabled',
+      this.enabled
+        ? '等待讲解'
+        : '语音已关闭',
     );
   }
 
-  private async speakNative(content: string, voice: InternalVoice): Promise<void> {
-    const speechId = this.invalidate();
-    this.stopActivePlaybackOnly();
-    this.setState('speaking', `正在生成语音 · ${voice.name}`);
+  /**
+   * Cancel the current browser utterance and, just as importantly,
+   * settle the Promise owned by the previous speak() call.
+   *
+   * Returning the new sequence id lets the next utterance start under
+   * the same generation without a race with stale onend/onerror events.
+   */
+  private interruptCurrentSpeech():
+    number {
+    const speechId =
+      this.invalidate();
 
-    try {
-      const result = await window.tutorIde.synthesizeSpeech({
-        text: content,
-        voiceId: voice.id,
-        rate: this.rate,
-      });
+    const resolveCurrent =
+      this.resolveCurrent;
 
-      if (speechId !== this.sequence) return;
+    this.resolveCurrent =
+      null;
 
-      const audio = new Audio(`data:${result.mimeType || 'audio/wav'};base64,${result.audioBase64}`);
-      this.currentAudio = audio;
-      this.setState('speaking', `正在朗读 · ${result.voiceName || voice.name}`);
+    this.currentUtterance =
+      null;
 
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          if (this.resolveCurrent === finish) this.resolveCurrent = null;
-          resolve();
-        };
-        this.resolveCurrent = finish;
-
-        audio.onended = () => {
-          if (speechId === this.sequence) {
-            this.currentAudio = null;
-            this.setState('idle', this.languageStatusMessage());
-          }
-          finish();
-        };
-        audio.onerror = () => {
-          if (speechId === this.sequence) {
-            this.currentAudio = null;
-            this.setState('error', 'Windows 原生语音播放失败');
-          }
-          finish();
-        };
-
-        void audio.play().catch(() => {
-          this.setState('error', 'Windows 原生语音无法开始播放');
-          finish();
-        });
-      });
-    } catch (error) {
-      if (speechId === this.sequence) {
-        this.setState('error', error instanceof Error ? error.message : 'Windows 原生语音失败');
+    if (this.isSupported()) {
+      // Chromium can occasionally keep a paused synthesizer sticky.
+      // Resume first so cancel() always clears the active utterance.
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
       }
-    }
-  }
 
-  private async speakWeb(content: string, voice: InternalVoice): Promise<void> {
-    if (!this.isWebSpeechSupported()) return;
-
-    const speechId = this.invalidate();
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(content);
-    this.currentUtterance = utterance;
-    utterance.rate = this.rate;
-    utterance.lang = voice.language;
-    utterance.voice = voice.webVoice ?? null;
-
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        if (this.resolveCurrent === finish) this.resolveCurrent = null;
-        resolve();
-      };
-      this.resolveCurrent = finish;
-
-      utterance.onstart = () => {
-        if (speechId === this.sequence) this.setState('speaking', `正在朗读 · ${voice.name}`);
-      };
-      utterance.onpause = () => {
-        if (speechId === this.sequence) this.setState('paused', '语音已暂停');
-      };
-      utterance.onresume = () => {
-        if (speechId === this.sequence) this.setState('speaking', `继续朗读 · ${voice.name}`);
-      };
-      utterance.onend = () => {
-        if (speechId === this.sequence) {
-          this.currentUtterance = null;
-          this.setState('idle', this.languageStatusMessage());
-        }
-        finish();
-      };
-      utterance.onerror = () => {
-        if (speechId === this.sequence) this.setState('error', '系统语音播放失败');
-        finish();
-      };
-
-      window.speechSynthesis.speak(utterance);
-    });
-  }
-
-  private stopActivePlaybackOnly(): void {
-    if (this.currentAudio) {
-      this.currentAudio.pause();
-      this.currentAudio = null;
-    }
-    if (this.isWebSpeechSupported()) {
       window.speechSynthesis.cancel();
     }
-    this.currentUtterance = null;
-    const resolveCurrent = this.resolveCurrent;
-    this.resolveCurrent = null;
+
+    // Promise resolution is idempotent. Calling it here means callers of
+    // an interrupted speak() can continue immediately instead of waiting
+    // for Chromium to emit onerror/onend for the cancelled utterance.
     resolveCurrent?.();
+
+    return speechId;
   }
 
-  private resolveVoice(): InternalVoice | undefined {
-    const voices = this.getVoices();
+  private resolveVoice():
+    | SpeechSynthesisVoice
+    | undefined {
+    const voices =
+      this.getVoices();
 
-    if (this.selectedVoiceId) {
-      const selected = voices.find((voice) => voice.id === this.selectedVoiceId);
-      if (selected && languageMatches(selected.language, this.selectedLanguage)) return selected;
+    if (
+      this.selectedVoiceId
+    ) {
+      const selected =
+        voices.find((voice) => {
+          return (
+            voiceIdOf(voice) ===
+            this.selectedVoiceId
+          );
+        });
+
+      if (
+        selected &&
+        languageMatches(
+          selected.lang,
+          this.selectedLanguage,
+        )
+      ) {
+        return selected;
+      }
     }
 
-    const exact = voices.find(
-      (voice) => normalizeLanguageTag(voice.language).toLowerCase() === this.selectedLanguage.toLowerCase(),
+    const exact =
+      voices.find((voice) => {
+        return (
+          normalizeLanguageTag(
+            voice.lang,
+          ).toLowerCase() ===
+          this.selectedLanguage
+            .toLowerCase()
+        );
+      });
+
+    if (exact) {
+      return exact;
+    }
+
+    const matching =
+      voices.find((voice) => {
+        return languageMatches(
+          voice.lang,
+          this.selectedLanguage,
+        );
+      });
+
+    if (matching) {
+      return matching;
+    }
+
+    // This is the same fallback philosophy as Alpha 0.8:
+    // prefer Chinese for the default tutor, then the OS default.
+    if (
+      this.selectedLanguage
+        .toLowerCase()
+        .startsWith('zh')
+    ) {
+      const chinese =
+        voices.find((voice) => {
+          return /^zh[-_]/i.test(
+            voice.lang,
+          );
+        });
+
+      if (chinese) {
+        return chinese;
+      }
+    }
+
+    return voices.find(
+      (voice) => voice.default,
     );
-    return exact ?? voices.find((voice) => languageMatches(voice.language, this.selectedLanguage));
   }
 
-  private getVoices(): InternalVoice[] {
-    if (this.nativeReady) {
-      return this.nativeVoices.map((voice) => ({
-        id: voice.id,
-        name: voice.name,
-        language: normalizeLanguageTag(voice.language),
-        gender: voice.gender,
-      }));
+  private getVoices():
+    SpeechSynthesisVoice[] {
+    if (!this.isSupported()) {
+      return [];
     }
 
-    if (!this.isWebSpeechSupported()) return [];
-    return window.speechSynthesis.getVoices().map((voice) => ({
-      id: `web:${voice.name}:${voice.lang}`,
-      name: voice.name,
-      language: normalizeLanguageTag(voice.lang),
-      gender: '',
-      webVoice: voice,
-    }));
+    return window
+      .speechSynthesis
+      .getVoices();
   }
 
-  private emitVoicesChanged(): void {
-    this.onVoicesChanged?.(this.getLanguageOptions());
-    if (this.enabled && !this.currentAudio && !this.currentUtterance) {
-      this.setState('idle', this.languageStatusMessage());
+  private emitVoicesChanged():
+    void {
+    this.onVoicesChanged?.(
+      this.getLanguageOptions(),
+    );
+
+    if (
+      this.enabled &&
+      !this.currentUtterance
+    ) {
+      this.setState(
+        'idle',
+        this.languageStatusMessage(),
+      );
     }
   }
 
-  private languageStatusMessage(): string {
-    const voice = this.resolveVoice();
-    const label = this.languageLabel(this.selectedLanguage);
-    if (!voice) return `${label} · 未安装可用语音`;
-    return `${label} · ${voice.name}${this.nativeReady ? ' · Windows 原生' : ''}`;
+  private languageStatusMessage():
+    string {
+    const voice =
+      this.resolveVoice();
+
+    const label =
+      this.languageLabel(
+        this.selectedLanguage,
+      );
+
+    if (!voice) {
+      return `${label} · 未找到系统语音`;
+    }
+
+    return `${label} · ${voice.name} · Web Speech`;
   }
 
-  private currentVoiceLabel(): string {
-    return this.resolveVoice()?.name ?? this.languageLabel(this.selectedLanguage);
+  private languageLabel(
+    code: string,
+  ): string {
+    return (
+      LANGUAGE_PRESETS.find(
+        (preset) =>
+          preset.code === code,
+      )?.label ?? code
+    );
   }
 
-  private languageLabel(code: string): string {
-    return LANGUAGE_PRESETS.find((preset) => preset.code === code)?.label ?? code;
-  }
-
-  private isWebSpeechSupported(): boolean {
-    return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
-  }
-
-  private invalidate(): number {
+  private invalidate():
+    number {
     this.sequence += 1;
     return this.sequence;
   }
 
-  private setState(state: VoiceState, message: string): void {
-    this.character.classList.toggle('voice-speaking', state === 'speaking');
-    this.character.classList.toggle('voice-paused', state === 'paused');
-    this.character.dataset.voiceState = state;
-    this.onStateChange?.(state, message);
+  private setState(
+    state: VoiceState,
+    message: string,
+  ): void {
+    this.character.classList.toggle(
+      'voice-speaking',
+      state === 'speaking',
+    );
+
+    this.character.classList.toggle(
+      'voice-paused',
+      state === 'paused',
+    );
+
+    this.character.dataset.voiceState =
+      state;
+
+    this.onStateChange?.(
+      state,
+      message,
+    );
   }
 }
 
-interface InternalVoice {
-  id: string;
-  name: string;
-  language: string;
-  gender: string;
-  webVoice?: SpeechSynthesisVoice;
+function voiceIdOf(
+  voice: SpeechSynthesisVoice,
+): string {
+  return (
+    `web:${voice.name}:` +
+    `${voice.lang}`
+  );
 }
 
-function normalizeLanguageTag(value: string): string {
-  return value.trim().replace('_', '-');
+function normalizeLanguageTag(
+  value: string,
+): string {
+  return value
+    .trim()
+    .replace('_', '-');
 }
 
-function languageMatches(voiceLanguage: string, requestedLanguage: string): boolean {
-  const voice = normalizeLanguageTag(voiceLanguage).toLowerCase();
-  const requested = normalizeLanguageTag(requestedLanguage).toLowerCase();
-  if (voice === requested) return true;
-  const voiceBase = voice.split('-')[0];
-  const requestedBase = requested.split('-')[0];
-  return Boolean(voiceBase && requestedBase && voiceBase === requestedBase);
+function languageMatches(
+  voiceLanguage: string,
+  requestedLanguage: string,
+): boolean {
+  const voice =
+    normalizeLanguageTag(
+      voiceLanguage,
+    ).toLowerCase();
+
+  const requested =
+    normalizeLanguageTag(
+      requestedLanguage,
+    ).toLowerCase();
+
+  if (voice === requested) {
+    return true;
+  }
+
+  return (
+    voice.split('-')[0] ===
+    requested.split('-')[0]
+  );
 }

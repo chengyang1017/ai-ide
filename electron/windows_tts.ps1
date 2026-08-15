@@ -38,7 +38,7 @@ function Await-WinRtOperation {
     Select-Object -First 1
 
   if (-not $method) {
-    throw '无法找到 Windows Runtime AsTask 转换方法。'
+    throw 'Windows Runtime AsTask conversion method was not found.'
   }
 
   $task = $method.MakeGenericMethod($ResultType).Invoke($null, @($Operation))
@@ -71,7 +71,7 @@ try {
 
   $text = [string]$request.text
   if ([string]::IsNullOrWhiteSpace($text)) {
-    throw '没有可朗读的文字。'
+    throw 'No text was provided for speech synthesis.'
   }
 
   $rate = 1.0

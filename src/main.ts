@@ -405,6 +405,7 @@ interface RuntimeMonacoEditor {
   onMouseMove(listener: (event: RuntimeMonacoMouseEvent) => void): { dispose(): void };
   onMouseLeave(listener: () => void): { dispose(): void };
   onDidChangeModelContent(listener: () => void): { dispose(): void };
+  onDidType(listener: (text: string) => void): { dispose(): void };
   setPosition(position: { lineNumber: number; column: number }): void;
   layout(): void;
   focus(): void;
@@ -480,6 +481,25 @@ let semanticAiTourSequence = 0;
 let semanticAiTourRunning = false;
 let aiTourSequence = 0;
 let aiTourRunning = false;
+let currentExplainSequence = 0;
+let currentExplainRunning = false;
+let tutorQuestionRunning = false;
+
+const tutorQuestionInput = document.createElement('input');
+tutorQuestionInput.type = 'text';
+tutorQuestionInput.placeholder = '随时问老师…';
+tutorQuestionInput.setAttribute('aria-label', '随时问 AI 老师');
+Object.assign(tutorQuestionInput.style, {
+  width: '210px',
+  minWidth: '120px',
+  padding: '6px 9px',
+  borderRadius: '6px',
+  border: '1px solid rgba(255,255,255,.16)',
+  background: 'rgba(12,14,20,.72)',
+  color: 'inherit',
+  outline: 'none',
+});
+document.querySelector('.titlebar-right')?.prepend(tutorQuestionInput);
 let definitionNavigationSequence = 0;
 let fileSaveSequence = 0;
 let externalRefreshSequence = 0;
@@ -503,6 +523,54 @@ runtimeEditor.onDidChangeModelContent(() => {
     void renderMarkdownPreview();
   }
 });
+
+tutorQuestionInput.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.isComposing) return;
+  event.preventDefault();
+  void askTutorQuestion();
+});
+
+async function askTutorQuestion(): Promise<void> {
+  const question = tutorQuestionInput.value.trim();
+  if (!question || tutorQuestionRunning) return;
+
+  const teaching = characterController.getTeachingContext();
+  if (!teaching) {
+    tutorStatus.textContent = '先让 AI 老师开始讲解，再随时插话提问';
+    return;
+  }
+  if (!(await ensureOpenAiKey())) return;
+
+  const context = captureCurrentCodeContext(editorController);
+  if (!context) {
+    tutorStatus.textContent = '当前代码上下文不可用';
+    return;
+  }
+
+  tutorQuestionRunning = true;
+  tutorQuestionInput.disabled = true;
+  characterController.pauseForQuestion(question);
+
+  try {
+    const result = await window.tutorIde.explainCurrentCode({
+      ...context,
+      filePath: teaching.filePath,
+      line: teaching.line,
+      column: teaching.column,
+      selectedText: `用户在老师讲解过程中插话提问：${question}\n\n老师刚才正在讲：${teaching.speech}\n\n当前代码：${context.selectedText}`,
+      nearbyCode: `${context.nearbyCode}\n\n请先直接回答用户的问题，再用一两句话说明它和刚才讲解内容的关系。不要重新从头讲整段代码。`,
+    });
+    await characterController.presentQuestionAnswer(result.explanation);
+    tutorQuestionInput.value = '';
+  } catch (error) {
+    tutorStatus.textContent = errorMessage(error);
+  } finally {
+    tutorQuestionRunning = false;
+    tutorQuestionInput.disabled = false;
+    tutorQuestionInput.focus();
+    characterController.resumeAfterQuestion();
+  }
+}
 
 window.tutorIde.onProjectFileChanged((change) => {
   void handleExternalFileChanged(change.path);
@@ -569,6 +637,12 @@ runtimeEditor.onMouseDown((event) => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && hasActiveTutorActivity()) {
+    event.preventDefault();
+    interruptTutorActivities('Esc · 已打断 AI 讲解');
+    return;
+  }
+
   if (event.key === 'Control') {
     ctrlNavigationPressed = true;
     if (hoveredEditorPosition) {
@@ -1032,6 +1106,11 @@ apiKeyInput.addEventListener('keydown', (event) => {
 });
 
 explainCurrentCodeButton.addEventListener('click', async () => {
+  if (currentExplainRunning) {
+    interruptTutorActivities('已停止当前代码解释');
+    return;
+  }
+
   if (!isRealProject) {
     tutorStatus.textContent = '请先打开真实项目';
     return;
@@ -1053,14 +1132,20 @@ explainCurrentCodeButton.addEventListener('click', async () => {
   stopSemanticAiTour('已切换到当前代码解释');
   stopAiTour('已切换到当前代码解释');
 
-  explainCurrentCodeButton.disabled = true;
-  explainCurrentCodeButton.textContent = '✨ 正在理解…';
+  const sequence = ++currentExplainSequence;
+  currentExplainRunning = true;
+  explainCurrentCodeButton.disabled = false;
+  explainCurrentCodeButton.textContent = '■ 停止解释';
   tutorStatus.textContent = context.query
     ? `AI 正在理解 ${context.filePath}:${context.line} 的 “${context.query}”…`
     : `AI 正在理解 ${context.filePath}:${context.line}…`;
 
   try {
     const result = await window.tutorIde.explainCurrentCode(context);
+    if (sequence !== currentExplainSequence) {
+      return;
+    }
+
     await characterController.moveTo({
       filePath: result.filePath,
       line: result.line,
@@ -1068,14 +1153,23 @@ explainCurrentCodeButton.addEventListener('click', async () => {
       action: 'point',
       speech: result.explanation,
     });
+    if (sequence !== currentExplainSequence) {
+      return;
+    }
+
     updateActiveFile();
     updateFileTreeSelection(true);
     tutorStatus.textContent = `✓ 已解释当前代码 · ${result.model}${result.usedUnsavedContent ? ' · 包含未保存修改' : ''}`;
   } catch (error) {
-    tutorStatus.textContent = errorMessage(error);
+    if (sequence === currentExplainSequence) {
+      tutorStatus.textContent = errorMessage(error);
+    }
   } finally {
-    explainCurrentCodeButton.disabled = !isRealProject;
-    explainCurrentCodeButton.textContent = '✨ 解释这里';
+    if (sequence === currentExplainSequence) {
+      currentExplainRunning = false;
+      explainCurrentCodeButton.disabled = !isRealProject;
+      explainCurrentCodeButton.textContent = '✨ 解释这里';
+    }
   }
 });
 
@@ -1243,8 +1337,56 @@ async function navigateToDartDefinition(line: number, column: number): Promise<v
   }
 }
 
+function hasActiveTutorActivity(): boolean {
+  return relatedTourRunning
+    || semanticTourRunning
+    || semanticAiTourRunning
+    || aiTourRunning
+    || currentExplainRunning
+    || tutorQuestionRunning;
+}
+
+function interruptTutorActivities(message: string): void {
+  if (!hasActiveTutorActivity()) {
+    return;
+  }
+
+  relatedTourSequence += 1;
+  semanticTourSequence += 1;
+  semanticAiTourSequence += 1;
+  aiTourSequence += 1;
+  currentExplainSequence += 1;
+
+  relatedTourRunning = false;
+  semanticTourRunning = false;
+  semanticAiTourRunning = false;
+  aiTourRunning = false;
+  currentExplainRunning = false;
+  tutorQuestionRunning = false;
+  tutorQuestionInput.disabled = false;
+
+  findRelatedButton.textContent = '🧭 老师找相关代码';
+  semanticRelatedButton.textContent = '🧠 Dart 语义调用';
+  semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
+  semanticAiModeSelect.disabled = false;
+  aiTourButton.textContent = '✨ AI 老师理解项目';
+  explainCurrentCodeButton.disabled = !isRealProject;
+  explainCurrentCodeButton.textContent = '✨ 解释这里';
+
+  characterController.interrupt(message);
+  tutorStatus.textContent = message;
+}
+
+function cancelCurrentExplanation(): void {
+  currentExplainSequence += 1;
+  currentExplainRunning = false;
+  explainCurrentCodeButton.disabled = !isRealProject;
+  explainCurrentCodeButton.textContent = '✨ 解释这里';
+}
+
 function stopRelatedTour(message: string): void {
   characterController.stopSpeech();
+  cancelCurrentExplanation();
   relatedTourSequence += 1;
   relatedTourRunning = false;
   findRelatedButton.textContent = '🧭 老师找相关代码';
@@ -1253,6 +1395,7 @@ function stopRelatedTour(message: string): void {
 
 function stopSemanticTour(message: string): void {
   characterController.stopSpeech();
+  cancelCurrentExplanation();
   semanticTourSequence += 1;
   semanticTourRunning = false;
   semanticRelatedButton.textContent = '🧠 Dart 语义调用';
@@ -1261,6 +1404,7 @@ function stopSemanticTour(message: string): void {
 
 function stopSemanticAiTour(message: string): void {
   characterController.stopSpeech();
+  cancelCurrentExplanation();
   semanticAiTourSequence += 1;
   semanticAiTourRunning = false;
   semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
@@ -1270,6 +1414,7 @@ function stopSemanticAiTour(message: string): void {
 
 function stopAiTour(message: string): void {
   characterController.stopSpeech();
+  cancelCurrentExplanation();
   aiTourSequence += 1;
   aiTourRunning = false;
   aiTourButton.textContent = '✨ AI 老师理解项目';
