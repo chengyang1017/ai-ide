@@ -1,6 +1,7 @@
 import type { AiTutorPlan, TutorFocus } from './core/ai_tutor_plan';
 import type { SemanticFocus, SemanticNavigationResult } from './core/semantic_navigation';
 import type { SemanticAiTutorPlan, SemanticTutorMode } from './core/semantic_ai_plan';
+import type { CurrentCodeContext, CurrentCodeExplanation } from './core/current_code_context';
 import type { CodeNote, CodeNoteImage } from './notes/code_note_controller';
 
 export interface NativeVoiceInfo {
@@ -130,6 +131,7 @@ declare global {
       hasOpenAiKey(): Promise<boolean>;
       setOpenAiKey(apiKey: string): Promise<boolean>;
       clearOpenAiKey(): Promise<boolean>;
+      explainCurrentCode(context: CurrentCodeContext): Promise<CurrentCodeExplanation>;
       planTutorTour(focus: TutorFocus): Promise<AiTutorPlan>;
       planDartSemanticTour(focus: SemanticFocus, mode: SemanticTutorMode): Promise<SemanticAiTutorPlan>;
     };

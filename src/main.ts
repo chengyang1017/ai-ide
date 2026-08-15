@@ -3,6 +3,7 @@ import { CharacterController } from './character/character_controller';
 import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
 import { monaco } from './editor/monaco_setup';
+import { captureCurrentCodeContext } from './editor/current_code_context';
 import { buildRelatedCodeMoves } from './project/project_navigator';
 import { buildSemanticTutorRoute } from './project/semantic_navigator';
 import type { SemanticTutorMode } from './core/semantic_ai_plan';
@@ -86,6 +87,7 @@ app.innerHTML = `
           <option value="incoming">谁调用它</option>
           <option value="outgoing">它调用谁</option>
         </select>
+        <button id="explain-current-code" class="ai-button" disabled>✨ 解释这里</button>
         <button id="semantic-ai-tour" class="semantic-ai-button" disabled>🧠✨ 理解函数</button>
         <button id="ai-tour" class="ai-button" disabled>✨ 理解项目</button>
       </div>
@@ -336,6 +338,7 @@ const findRelatedButton = requireButton('find-related');
 const semanticRelatedButton = requireButton('semantic-related');
 const semanticAiModeSelect = requireSelect('semantic-ai-mode');
 const semanticAiTourButton = requireButton('semantic-ai-tour');
+const explainCurrentCodeButton = requireButton('explain-current-code');
 const voiceToggleButton = requireButton('voice-toggle');
 const voiceLanguageSelect = requireSelect('voice-language');
 const voiceSelect = requireSelect('voice-select');
@@ -1025,6 +1028,54 @@ apiKeyInput.addEventListener('keydown', (event) => {
 
   if (event.key === 'Escape') {
     closeApiKeyDialog();
+  }
+});
+
+explainCurrentCodeButton.addEventListener('click', async () => {
+  if (!isRealProject) {
+    tutorStatus.textContent = '请先打开真实项目';
+    return;
+  }
+
+  const context = captureCurrentCodeContext(editorController);
+  if (!context) {
+    tutorStatus.textContent = '请把光标放到代码上，或先选中一段想理解的代码';
+    return;
+  }
+
+  if (!(await ensureOpenAiKey())) {
+    tutorStatus.textContent = '未设置 OpenAI API Key';
+    return;
+  }
+
+  stopRelatedTour('已切换到当前代码解释');
+  stopSemanticTour('已切换到当前代码解释');
+  stopSemanticAiTour('已切换到当前代码解释');
+  stopAiTour('已切换到当前代码解释');
+
+  explainCurrentCodeButton.disabled = true;
+  explainCurrentCodeButton.textContent = '✨ 正在理解…';
+  tutorStatus.textContent = context.query
+    ? `AI 正在理解 ${context.filePath}:${context.line} 的 “${context.query}”…`
+    : `AI 正在理解 ${context.filePath}:${context.line}…`;
+
+  try {
+    const result = await window.tutorIde.explainCurrentCode(context);
+    await characterController.moveTo({
+      filePath: result.filePath,
+      line: result.line,
+      column: result.column,
+      action: 'point',
+      speech: result.explanation,
+    });
+    updateActiveFile();
+    updateFileTreeSelection(true);
+    tutorStatus.textContent = `✓ 已解释当前代码 · ${result.model}${result.usedUnsavedContent ? ' · 包含未保存修改' : ''}`;
+  } catch (error) {
+    tutorStatus.textContent = errorMessage(error);
+  } finally {
+    explainCurrentCodeButton.disabled = !isRealProject;
+    explainCurrentCodeButton.textContent = '✨ 解释这里';
   }
 });
 
@@ -1998,6 +2049,7 @@ async function activateRealProject(
   findRelatedButton.disabled = false;
   semanticRelatedButton.disabled = false;
   semanticAiTourButton.disabled = false;
+  explainCurrentCodeButton.disabled = false;
   aiTourButton.disabled = false;
   renderFileTree(projectFiles);
   characterController.clear('项目已打开');

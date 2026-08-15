@@ -700,6 +700,37 @@ ipcMain.handle('ai:clear-key', async () => {
   return true;
 });
 
+ipcMain.handle('ai:explain-current-code', async (_event, rawContext) => {
+  if (!currentProjectRoot) {
+    throw new Error('请先打开一个项目。');
+  }
+
+  if (!runtimeOpenAiKey) {
+    throw new Error('请先设置 OpenAI API Key。');
+  }
+
+  const context = validateCurrentCodeContext(rawContext);
+  const explanation = await requestCurrentCodeExplanation(context);
+
+  return {
+    explanation,
+    model: OPENAI_MODEL,
+    filePath: context.filePath,
+    line: context.line,
+    column: context.column,
+    query: context.query,
+    usedSelection: Boolean(
+      context.selectionStartLine
+      && context.selectionEndLine
+      && (
+        context.selectionStartLine !== context.selectionEndLine
+        || context.selectionStartColumn !== context.selectionEndColumn
+      )
+    ),
+    usedUnsavedContent: context.isDirty,
+  };
+});
+
 ipcMain.handle('ai:plan-tour', async (_event, rawFocus) => {
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
@@ -894,6 +925,64 @@ function dedupeSemanticLocations(locations) {
     seen.add(key);
     return true;
   });
+}
+
+function validateCurrentCodeContext(value) {
+  if (!value || typeof value !== 'object') {
+    throw new Error('当前编辑器上下文无效。');
+  }
+
+  const filePath = typeof value.filePath === 'string'
+    ? normalizeRelativePath(value.filePath)
+    : '';
+  const language = typeof value.language === 'string'
+    ? value.language.trim().slice(0, 40)
+    : 'plaintext';
+  const selectedText = typeof value.selectedText === 'string'
+    ? value.selectedText.trim().slice(0, 12_000)
+    : '';
+  const query = typeof value.query === 'string'
+    ? value.query.trim().slice(0, 120)
+    : null;
+  const nearbyCode = typeof value.nearbyCode === 'string'
+    ? value.nearbyCode.slice(0, 20_000)
+    : '';
+  const line = Number.isInteger(value.line) ? Math.max(1, value.line) : 1;
+  const column = Number.isInteger(value.column) ? Math.max(1, value.column) : 1;
+  const selectionStartLine = Number.isInteger(value.selectionStartLine)
+    ? Math.max(1, value.selectionStartLine)
+    : null;
+  const selectionStartColumn = Number.isInteger(value.selectionStartColumn)
+    ? Math.max(1, value.selectionStartColumn)
+    : null;
+  const selectionEndLine = Number.isInteger(value.selectionEndLine)
+    ? Math.max(1, value.selectionEndLine)
+    : null;
+  const selectionEndColumn = Number.isInteger(value.selectionEndColumn)
+    ? Math.max(1, value.selectionEndColumn)
+    : null;
+
+  if (!currentProjectFiles.includes(filePath)) {
+    throw new Error('当前文件不属于已打开项目。');
+  }
+  if (!selectedText && !query && !nearbyCode.trim()) {
+    throw new Error('当前光标附近没有可解释的代码。');
+  }
+
+  return {
+    filePath,
+    language,
+    line,
+    column,
+    selectedText,
+    query: query || null,
+    nearbyCode,
+    isDirty: value.isDirty === true,
+    selectionStartLine,
+    selectionStartColumn,
+    selectionEndLine,
+    selectionEndColumn,
+  };
 }
 
 function validateTutorFocus(value) {
@@ -1148,6 +1237,78 @@ function semanticRelationLabel(relation) {
   return String(relation || 'unknown');
 }
 
+async function requestCurrentCodeExplanation(context) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  try {
+    const response = await fetch(`${OPENAI_BASE_URL}/responses`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${runtimeOpenAiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        reasoning: { effort: 'low' },
+        max_output_tokens: 900,
+        input: [
+          {
+            role: 'system',
+            content: CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT,
+          },
+          {
+            role: 'user',
+            content: buildCurrentCodeExplainPrompt(context),
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload?.error?.message || `OpenAI API 请求失败（HTTP ${response.status}）`;
+      throw new Error(message);
+    }
+    if (payload.status === 'incomplete') {
+      throw new Error(`AI 返回内容不完整：${payload.incomplete_details?.reason || 'unknown'}`);
+    }
+
+    return extractOpenAiOutputText(payload).trim();
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('AI 当前代码解释超时，请稍后重试。');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildCurrentCodeExplainPrompt(context) {
+  const selectionLabel = context.selectionStartLine
+    ? `第 ${context.selectionStartLine} 行到第 ${context.selectionEndLine ?? context.selectionStartLine} 行`
+    : '没有主动选区，解释光标所在代码';
+
+  return `用户正在 IDE 中阅读真实项目代码。
+
+当前文件：${context.filePath}
+语言：${context.language}
+光标/焦点：第 ${context.line} 行，第 ${context.column} 列
+当前标识符：${context.query || '(无)'}
+选区：${selectionLabel}
+编辑器状态：${context.isDirty ? '有未保存修改；以下内容来自 Monaco 当前内存，优先相信它' : '已保存'}
+
+当前选中或所在代码：
+${context.selectedText || '(无)'}
+
+光标附近代码：
+${context.nearbyCode || '(无)'}
+
+请直接解释用户现在正在看的这里。先说“这段代码在做什么”，再解释关键语法/数据流/调用关系；如果上下文不足以证明某个结论，要明确说不知道，不要脑补项目其他文件。`;
+}
+
 async function requestTutorPlan(focus, candidates) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
@@ -1256,6 +1417,18 @@ function validateAiPlan(plan, candidates) {
     }
   }
 }
+
+const CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT = `你是住在代码编辑器里的 AI 编程导师。
+你会收到 IDE 在这一刻真实捕获的编辑器上下文，包括当前文件、光标、选区、标识符、附近代码，以及是否存在未保存修改。
+
+要求：
+1. 使用简体中文，直接回答“用户现在正在看的代码在做什么”。
+2. 如果有选区，优先解释选区；没有选区时围绕光标所在行和当前标识符解释。
+3. 先讲功能，再讲关键语法、数据流或调用关系，不要只做逐字翻译。
+4. 未保存内容来自 Monaco 当前内存，应优先于你对磁盘文件的任何假设。
+5. 只能根据提供的当前上下文下结论；需要其他文件才能确认的事情要明确说明。
+6. 面向正在学习真实项目的程序员，尽量把这一段放回功能链中理解。
+7. 控制在约 2 到 4 个短段落，适合显示在角色气泡并朗读。`;
 
 const SEMANTIC_AI_TUTOR_SYSTEM_PROMPT = `你是住在代码编辑器里的 AI 编程导师。
 IDE 已经通过 Dart Analysis Server / LSP 得到了真实 Call Hierarchy。你的任务是把这些真实语义节点组织成适合学习的调用链，并让角色按顺序跨文件跳着讲。
