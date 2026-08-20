@@ -44,6 +44,14 @@ interface AndroidProjectPlugin {
   createProjectDirectory(options: {
     path: string;
   }): Promise<AndroidProjectResult>;
+  writeClipboard(options: {
+    text: string;
+  }): Promise<{
+    value: boolean;
+  }>;
+  readClipboard(): Promise<{
+    text: string;
+  }>;
   hasOpenAiKey(): Promise<{
     value: boolean;
   }>;
@@ -95,6 +103,98 @@ function unsupported(
 if (
   Capacitor.getPlatform() === 'android'
 ) {
+  window.addEventListener(
+    'ai-ide-editor-native-copy',
+    (event) => {
+      const detail =
+        (
+          event as CustomEvent<{
+            text?: string;
+          }>
+        ).detail;
+
+      const text =
+        detail?.text ?? '';
+
+      void AndroidProject
+        .writeClipboard({
+          text,
+        })
+        .then(
+          () => {
+            window.dispatchEvent(
+              new CustomEvent(
+                'ai-ide-editor-clipboard-result',
+                {
+                  detail: {
+                    kind: 'copy',
+                    ok: true,
+                  },
+                },
+              ),
+            );
+          },
+        )
+        .catch(
+          (error) => {
+            window.dispatchEvent(
+              new CustomEvent(
+                'ai-ide-editor-clipboard-result',
+                {
+                  detail: {
+                    kind: 'copy',
+                    ok: false,
+                    message:
+                      String(error),
+                  },
+                },
+              ),
+            );
+          },
+        );
+    },
+  );
+
+  window.addEventListener(
+    'ai-ide-editor-native-paste-request',
+    () => {
+      void AndroidProject
+        .readClipboard()
+        .then(
+          (result) => {
+            window.dispatchEvent(
+              new CustomEvent(
+                'ai-ide-editor-paste-text',
+                {
+                  detail: {
+                    text:
+                      result.text ?? '',
+                  },
+                },
+              ),
+            );
+          },
+        )
+        .catch(
+          (error) => {
+            window.dispatchEvent(
+              new CustomEvent(
+                'ai-ide-editor-clipboard-result',
+                {
+                  detail: {
+                    kind: 'paste',
+                    ok: false,
+                    message:
+                      String(error),
+                  },
+                },
+              ),
+            );
+          },
+        );
+    },
+  );
+
   const loadAppearance = () => {
     try {
       const raw =

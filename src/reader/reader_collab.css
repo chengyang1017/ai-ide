@@ -4,7 +4,9 @@
 
 .reader-collab-modal[hidden],
 .reader-collab-active[hidden],
-.reader-peer-notice[hidden] {
+.reader-peer-notice[hidden],
+.reader-collab-invite[hidden],
+.reader-friend-requests[hidden] {
   display: none !important;
 }
 
@@ -22,7 +24,7 @@
 
 .reader-collab-dialog {
   width: min(680px, 100%);
-  max-height: min(720px, 92vh);
+  max-height: min(760px, 92vh);
   overflow: auto;
   border:
     1px solid
@@ -72,25 +74,43 @@
   font-size: 22px;
 }
 
-.reader-collab-settings {
-  display: grid;
-  grid-template-columns:
-    0.8fr 1.2fr;
-  gap: 12px;
-  padding: 18px 20px 12px;
+.reader-friend-identity,
+.reader-friend-add,
+.reader-friend-requests,
+.reader-friends {
+  padding: 14px 20px 0;
 }
 
-.reader-collab-settings label {
+.reader-friend-identity {
   display: grid;
   gap: 7px;
 }
 
-.reader-collab-settings span,
-.reader-collab-room-row small {
+.reader-friend-identity label,
+.reader-friend-add label {
+  display: grid;
+  gap: 7px;
+}
+
+.reader-friend-identity label > span,
+.reader-friend-add label > span {
   color: #8e98a8;
   font-size: 11px;
 }
 
+.reader-friend-identity > small {
+  color: #8e98a8;
+  font-size: 11px;
+}
+
+.reader-friend-inline {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.reader-friend-inline input,
 .reader-collab-settings input,
 .reader-collab-join input {
   box-sizing: border-box;
@@ -106,25 +126,104 @@
   outline: none;
 }
 
+.reader-friend-inline input:focus,
 .reader-collab-settings input:focus,
 .reader-collab-join input:focus {
   border-color:
     rgba(77, 180, 255, 0.68);
 }
 
-.reader-collab-connect {
-  display: grid;
-  grid-template-columns:
-    auto 1fr;
-  gap: 10px;
-  padding: 0 20px 18px;
+.reader-friend-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.reader-collab-join {
+.reader-friend-section-title strong {
+  font-size: 13px;
+}
+
+.reader-friend-section-title span {
+  color: #8e98a8;
+  font-size: 11px;
+}
+
+.reader-friend-list {
   display: grid;
-  grid-template-columns:
-    minmax(120px, 1fr) auto;
   gap: 8px;
+}
+
+.reader-friend-card,
+.reader-peer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border:
+    1px solid
+    rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background:
+    rgba(255, 255, 255, 0.025);
+}
+
+.reader-friend-card > div:first-child,
+.reader-peer-card > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.reader-friend-card strong,
+.reader-peer-card strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.reader-friend-card span,
+.reader-peer-card span {
+  color: #99a4b5;
+  font:
+    11px/1.4
+    "Cascadia Code",
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+}
+
+.reader-friend-card-actions {
+  display: flex !important;
+  flex: 0 0 auto;
+  gap: 6px !important;
+  margin: 0 !important;
+}
+
+.reader-friend-presence {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5c6472;
+  box-shadow:
+    0 0 0 2px
+    rgba(92, 100, 114, 0.12);
+}
+
+.reader-friend-presence[
+  data-online="true"
+] {
+  background: #66d58a;
+  box-shadow:
+    0 0 0 2px
+    rgba(102, 213, 138, 0.13);
+}
+
+.reader-collab-active {
+  padding-top: 14px;
 }
 
 .reader-collab-room-row {
@@ -142,55 +241,31 @@
   display: grid;
   gap: 3px;
   margin-right: auto;
+  min-width: 0;
+}
+
+.reader-collab-room-row small {
+  color: #8e98a8;
+  font-size: 11px;
 }
 
 .reader-collab-room-row strong {
+  max-width: 100%;
+  color: #eef4ff;
   font:
-    700 18px/1
+    600 12px/1.35
     "Cascadia Code",
     Consolas,
     monospace;
-  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reader-collab-peers {
   display: grid;
   gap: 8px;
   padding: 12px 20px 0;
-}
-
-.reader-peer-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  border:
-    1px solid
-    rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  background:
-    rgba(255, 255, 255, 0.025);
-}
-
-.reader-peer-card > div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  margin-right: auto;
-}
-
-.reader-peer-card strong {
-  font-size: 13px;
-}
-
-.reader-peer-card span {
-  color: #99a4b5;
-  font:
-    11px/1.4
-    "Cascadia Code",
-    Consolas,
-    monospace;
-  overflow-wrap: anywhere;
 }
 
 .reader-collab-empty,
@@ -204,77 +279,17 @@
   text-align: center;
 }
 
-.reader-collab-status {
-  margin: 0;
-  padding: 14px 20px 20px;
-}
-
-.reader-peer-notice {
-  position: fixed;
-  right: 18px;
-  bottom: 38px;
-  z-index: 1450;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  max-width:
-    min(440px, calc(100vw - 36px));
-  padding: 12px 13px;
-  border:
-    1px solid
-    rgba(77, 180, 255, 0.34);
-  border-radius: 12px;
-  background:
-    rgba(18, 25, 36, 0.96);
-  box-shadow:
-    0 14px 36px
-    rgba(0, 0, 0, 0.36);
-  backdrop-filter: blur(10px);
-}
-
-.reader-peer-notice > div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.reader-peer-notice strong {
-  color: #f5f8ff;
-  font-size: 13px;
-}
-
-.reader-peer-notice span {
-  color: #aeb8c7;
-  font:
-    11px/1.4
-    "Cascadia Code",
-    Consolas,
-    monospace;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 720px) {
-  .reader-collab-settings {
-    grid-template-columns: 1fr;
-  }
-
-  .reader-collab-connect {
-    grid-template-columns: 1fr;
-  }
-
-  .reader-collab-room-row {
-    flex-wrap: wrap;
-  }
-}
-
 .reader-collab-feedback {
   display: grid;
   gap: 4px;
-  margin: -6px 20px 14px;
+  margin: 14px 20px 0;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border:
+    1px solid
+    rgba(255, 255, 255, 0.08);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.025);
+  background:
+    rgba(255, 255, 255, 0.025);
 }
 
 .reader-collab-feedback strong {
@@ -292,17 +307,170 @@
   overflow-wrap: anywhere;
 }
 
-.reader-collab-feedback[data-kind="working"] {
-  border-color: rgba(77, 180, 255, 0.34);
-  background: rgba(77, 180, 255, 0.07);
+.reader-collab-feedback[
+  data-kind="working"
+] {
+  border-color:
+    rgba(77, 180, 255, 0.34);
+  background:
+    rgba(77, 180, 255, 0.07);
 }
 
-.reader-collab-feedback[data-kind="error"] {
-  border-color: rgba(255, 112, 112, 0.4);
-  background: rgba(255, 90, 90, 0.07);
+.reader-collab-feedback[
+  data-kind="error"
+] {
+  border-color:
+    rgba(255, 112, 112, 0.4);
+  background:
+    rgba(255, 90, 90, 0.07);
 }
 
-.reader-collab-feedback[data-kind="success"] {
-  border-color: rgba(104, 211, 145, 0.35);
-  background: rgba(104, 211, 145, 0.07);
+.reader-collab-feedback[
+  data-kind="success"
+] {
+  border-color:
+    rgba(104, 211, 145, 0.35);
+  background:
+    rgba(104, 211, 145, 0.07);
+}
+
+.reader-collab-legacy {
+  margin: 14px 20px 0;
+  border-top:
+    1px solid
+    rgba(255, 255, 255, 0.07);
+  padding-top: 10px;
+}
+
+.reader-collab-legacy summary {
+  color: #7f8999;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.reader-collab-settings {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0 8px;
+}
+
+.reader-collab-settings label {
+  display: grid;
+  gap: 7px;
+}
+
+.reader-collab-settings span {
+  color: #8e98a8;
+  font-size: 11px;
+}
+
+.reader-collab-connect {
+  display: grid;
+  grid-template-columns:
+    auto 1fr;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+
+.reader-collab-join {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 1fr) auto;
+  gap: 8px;
+}
+
+.reader-collab-status {
+  margin: 0;
+  padding: 14px 20px 20px;
+}
+
+.reader-peer-notice,
+.reader-collab-invite {
+  position: fixed;
+  right: 18px;
+  z-index: 1550;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width:
+    min(460px, calc(100vw - 36px));
+  padding: 12px 13px;
+  border:
+    1px solid
+    rgba(77, 180, 255, 0.34);
+  border-radius: 12px;
+  background:
+    rgba(18, 25, 36, 0.97);
+  box-shadow:
+    0 14px 36px
+    rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(10px);
+}
+
+.reader-peer-notice {
+  bottom: 38px;
+}
+
+.reader-collab-invite {
+  bottom: 96px;
+}
+
+.reader-peer-notice > div,
+.reader-collab-invite > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.reader-peer-notice strong,
+.reader-collab-invite strong {
+  color: #f5f8ff;
+  font-size: 13px;
+}
+
+.reader-peer-notice span,
+.reader-collab-invite span {
+  color: #aeb8c7;
+  font:
+    11px/1.4
+    "Cascadia Code",
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+}
+
+.reader-collab-invite-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .reader-collab-dialog {
+    width: 100%;
+    max-height: 94vh;
+    border-radius: 14px;
+  }
+
+  .reader-friend-inline {
+    grid-template-columns:
+      minmax(0, 1fr) auto;
+  }
+
+  .reader-collab-connect {
+    grid-template-columns: 1fr;
+  }
+
+  .reader-collab-room-row,
+  .reader-friend-card {
+    flex-wrap: wrap;
+  }
+
+  .reader-collab-invite {
+    right: 10px;
+    bottom: 116px;
+    left: 10px;
+    max-width: none;
+  }
 }

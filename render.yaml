@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ai-ide-collab
+    runtime: node
+    region: singapore
+    plan: free
+    rootDir: server
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production

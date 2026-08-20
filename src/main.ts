@@ -13,6 +13,11 @@ import { EditorController } from './editor/editor_controller';
 import { installMemorizeMode } from './memorize/memorize_mode';
 import { installReaderSurface } from './reader/reader_surface';
 import { installReaderCollab } from './reader/reader_collab';
+import {
+  clearCollabRemoteProject,
+  hasCollabRemoteProject,
+  readCollabRemoteProjectFile,
+} from './reader/collab_remote_project';
 import { monaco } from './editor/monaco_setup';
 import { captureCurrentCodeContext } from './editor/current_code_context';
 import { buildRelatedCodeMoves } from './project/project_navigator';
@@ -417,6 +422,15 @@ interface RuntimeMonacoEditor {
   onMouseLeave(listener: () => void): { dispose(): void };
   onDidChangeModelContent(listener: () => void): { dispose(): void };
   onDidType(listener: (text: string) => void): { dispose(): void };
+  getTargetAtClientPoint(
+    clientX: number,
+    clientY: number,
+  ): {
+    position?: {
+      lineNumber: number;
+      column: number;
+    } | null;
+  } | null;
   setPosition(position: { lineNumber: number; column: number }): void;
   layout(): void;
   focus(): void;
@@ -621,6 +635,568 @@ externalKeepButton.addEventListener('click', () => {
 let ctrlNavigationPressed = false;
 let hoveredEditorPosition: { lineNumber: number; column: number } | null = null;
 
+let androidTouchSelectionActive = false;
+let androidSelectionPointerId:
+  number | null = null;
+let androidSelectionAnchor:
+  {
+    lineNumber: number;
+    column: number;
+  } | null = null;
+
+function androidEditorPositionAt(
+  clientX: number,
+  clientY: number,
+): {
+  lineNumber: number;
+  column: number;
+} | null {
+  return (
+    runtimeEditor
+      .getTargetAtClientPoint(
+        clientX,
+        clientY,
+      )
+      ?.position
+      ?? null
+  );
+}
+
+function normalizeAndroidPaste(
+  raw: string,
+): string {
+  const editor =
+    editorController.editor;
+  const model =
+    editor.getModel();
+  const selection =
+    editor.getSelection();
+
+  const normalized =
+    raw.replace(
+      /\r\n?/g,
+      '\n',
+    );
+
+  if (
+    !model
+      || !selection
+      || !normalized.includes('\n')
+  ) {
+    return normalized;
+  }
+
+  const modelOptions =
+    model.getOptions();
+
+  const tabSize =
+    Math.max(
+      1,
+      Number(
+        modelOptions.tabSize
+          ?? 2,
+      ),
+    );
+
+  const expanded =
+    modelOptions.insertSpaces
+      ? normalized.replace(
+          /\t/g,
+          ' '.repeat(tabSize),
+        )
+      : normalized;
+
+  const lines =
+    expanded.split('\n');
+
+  const nonEmpty =
+    lines.filter(
+      (line) =>
+        line.trim().length > 0,
+    );
+
+  const commonIndent =
+    nonEmpty.length === 0
+      ? 0
+      : Math.min(
+          ...nonEmpty.map(
+            (line) =>
+              (
+                line.match(/^[ \t]*/)
+                  ?.[0]
+                  ?.length
+                  ?? 0
+              ),
+          ),
+        );
+
+  const deindented =
+    lines.map(
+      (line) =>
+        line.trim().length === 0
+          ? ''
+          : line.slice(
+              commonIndent,
+            ),
+    );
+
+  const start =
+    selection.getStartPosition();
+
+  const currentLine =
+    model.getLineContent(
+      start.lineNumber,
+    );
+
+  const prefix =
+    currentLine.slice(
+      0,
+      Math.max(
+        0,
+        start.column - 1,
+      ),
+    );
+
+  const baseIndent =
+    prefix.match(/^[ \t]*/)
+      ?.[0]
+      ?? '';
+
+  return deindented
+    .map(
+      (line, index) => {
+        if (index === 0) {
+          return line;
+        }
+
+        return line.length === 0
+          ? ''
+          : baseIndent + line;
+      },
+    )
+    .join('\n');
+}
+
+function insertAndroidPaste(
+  raw: string,
+): void {
+  if (!raw) {
+    tutorStatus.textContent =
+      '\u526a\u8d34\u677f\u91cc\u6ca1\u6709\u6587\u672c';
+    return;
+  }
+
+  const editor =
+    editorController.editor;
+
+  const selection =
+    editor.getSelection();
+
+  if (!selection) {
+    return;
+  }
+
+  const text =
+    normalizeAndroidPaste(
+      raw,
+    );
+
+  const start =
+    selection.getStartPosition();
+
+  editor.executeEdits(
+    'android-paste',
+    [
+      {
+        range: selection,
+        text,
+        forceMoveMarkers: true,
+      },
+    ],
+  );
+
+  const parts =
+    text.split('\n');
+
+  const endLine =
+    start.lineNumber
+      + parts.length
+      - 1;
+
+  const endColumn =
+    parts.length === 1
+      ? start.column
+          + (parts[0]?.length ?? 0)
+      : (parts[
+          parts.length - 1
+        ]?.length ?? 0) + 1;
+
+  editor.setSelection(
+    new monaco.Selection(
+      endLine,
+      endColumn,
+      endLine,
+      endColumn,
+    ),
+  );
+
+  editor.focus();
+
+  tutorStatus.textContent =
+    '\u2713 \u5df2\u7c98\u8d34\u5e76\u6574\u7406\u7f29\u8fdb';
+}
+
+window.addEventListener(
+  'ai-ide-editor-touch-select-toggle',
+  (event) => {
+    const active =
+      Boolean(
+        (
+          event as CustomEvent<{
+            active?: boolean;
+          }>
+        ).detail?.active,
+      );
+
+    androidTouchSelectionActive =
+      active;
+
+    androidSelectionPointerId =
+      null;
+    androidSelectionAnchor =
+      null;
+
+    editorStage.dataset
+      .androidTouchSelecting =
+        String(active);
+
+    tutorStatus.textContent =
+      active
+        ? '\u9009\u53d6\u6a21\u5f0f\uff1a\u5728\u4ee3\u7801\u4e0a\u70b9\u4e00\u4e0b\u9009\u4e2d\u5355\u8bcd\uff0c\u6216\u7528\u624b\u6307\u62d6\u52a8\u9009\u53d6\u4ee3\u7801'
+        : '\u5df2\u9000\u51fa\u9009\u53d6\u6a21\u5f0f';
+  },
+);
+
+editorStage.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (
+      !androidTouchSelectionActive
+        || editorStage.dataset
+          .editorSurface
+          !== 'editor'
+    ) {
+      return;
+    }
+
+    const target =
+      event.target as Node | null;
+
+    if (
+      !target
+        || !editorElement
+          .contains(target)
+    ) {
+      return;
+    }
+
+    const position =
+      androidEditorPositionAt(
+        event.clientX,
+        event.clientY,
+      );
+
+    if (!position) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    androidSelectionPointerId =
+      event.pointerId;
+    androidSelectionAnchor =
+      position;
+
+    try {
+      editorStage.setPointerCapture(
+        event.pointerId,
+      );
+    } catch {
+      // Pointer capture is optional.
+    }
+
+    editorController.editor
+      .setSelection(
+        new monaco.Selection(
+          position.lineNumber,
+          position.column,
+          position.lineNumber,
+          position.column,
+        ),
+      );
+  },
+  true,
+);
+
+editorStage.addEventListener(
+  'pointermove',
+  (event) => {
+    if (
+      !androidTouchSelectionActive
+        || androidSelectionPointerId
+          !== event.pointerId
+        || !androidSelectionAnchor
+    ) {
+      return;
+    }
+
+    const position =
+      androidEditorPositionAt(
+        event.clientX,
+        event.clientY,
+      );
+
+    if (!position) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    editorController.editor
+      .setSelection(
+        new monaco.Selection(
+          androidSelectionAnchor
+            .lineNumber,
+          androidSelectionAnchor
+            .column,
+          position.lineNumber,
+          position.column,
+        ),
+      );
+  },
+  true,
+);
+
+editorStage.addEventListener(
+  'pointerup',
+  (event) => {
+    if (
+      !androidTouchSelectionActive
+        || androidSelectionPointerId
+          !== event.pointerId
+        || !androidSelectionAnchor
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const editor =
+      editorController.editor;
+
+    const selection =
+      editor.getSelection();
+
+    if (
+      selection
+        && selection.isEmpty()
+    ) {
+      const model =
+        editor.getModel();
+
+      const position =
+        androidEditorPositionAt(
+          event.clientX,
+          event.clientY,
+        )
+          ?? androidSelectionAnchor;
+
+      const word =
+        model?.getWordAtPosition(
+          position,
+        );
+
+      if (word) {
+        editor.setSelection(
+          new monaco.Selection(
+            position.lineNumber,
+            word.startColumn,
+            position.lineNumber,
+            word.endColumn,
+          ),
+        );
+      }
+    }
+
+    try {
+      editorStage
+        .releasePointerCapture(
+          event.pointerId,
+        );
+    } catch {
+      // Pointer capture is optional.
+    }
+
+    androidSelectionPointerId =
+      null;
+    androidSelectionAnchor =
+      null;
+  },
+  true,
+);
+
+window.addEventListener(
+  'ai-ide-editor-copy-request',
+  () => {
+    const selected =
+      editorController
+        .getSelectedCode();
+
+    if (!selected) {
+      tutorStatus.textContent =
+        '\u8bf7\u5148\u70b9\u201c\u9009\u53d6\u201d\u540e\u9009\u4e2d\u4ee3\u7801';
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(
+        'ai-ide-editor-native-copy',
+        {
+          detail: {
+            text:
+              selected.code,
+          },
+        },
+      ),
+    );
+  },
+);
+
+window.addEventListener(
+  'ai-ide-editor-paste-text',
+  (event) => {
+    const text =
+      (
+        event as CustomEvent<{
+          text?: string;
+        }>
+      ).detail?.text
+        ?? '';
+
+    insertAndroidPaste(
+      text,
+    );
+  },
+);
+
+window.addEventListener(
+  'ai-ide-editor-select-all',
+  () => {
+    const editor =
+      editorController.editor;
+    const model =
+      editor.getModel();
+
+    if (!model) {
+      return;
+    }
+
+    editor.setSelection(
+      model.getFullModelRange(),
+    );
+
+    tutorStatus.textContent =
+      '\u2713 \u5df2\u5168\u9009\u5f53\u524d\u6587\u4ef6';
+  },
+);
+
+window.addEventListener(
+  'ai-ide-editor-history',
+  (event) => {
+    const action =
+      (
+        event as CustomEvent<{
+          action?: string;
+        }>
+      ).detail?.action;
+
+    if (
+      action !== 'undo'
+        && action !== 'redo'
+    ) {
+      return;
+    }
+
+    editorController.editor
+      .trigger(
+        'android-toolbar',
+        action,
+        null,
+      );
+  },
+);
+
+window.addEventListener(
+  'ai-ide-editor-clipboard-result',
+  (event) => {
+    const detail =
+      (
+        event as CustomEvent<{
+          kind?: string;
+          ok?: boolean;
+          message?: string;
+        }>
+      ).detail;
+
+    if (!detail?.ok) {
+      tutorStatus.textContent =
+        detail?.message
+          ?? '\u526a\u8d34\u677f\u64cd\u4f5c\u5931\u8d25';
+      return;
+    }
+
+    if (detail.kind === 'copy') {
+      tutorStatus.textContent =
+        '\u2713 \u5df2\u590d\u5236\u9009\u4e2d\u4ee3\u7801';
+    }
+  },
+);
+
+editorElement.addEventListener(
+  'paste',
+  (event) => {
+    if (
+      document.documentElement
+        .dataset.androidApp
+        !== 'true'
+    ) {
+      return;
+    }
+
+    const text =
+      event.clipboardData
+        ?.getData(
+          'text/plain',
+        )
+        ?? '';
+
+    if (!text) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    insertAndroidPaste(
+      text,
+    );
+  },
+  true,
+);
+
 runtimeEditor.onMouseMove((event) => {
   hoveredEditorPosition = event.target.position ?? null;
   if (ctrlNavigationPressed && hoveredEditorPosition) {
@@ -672,6 +1248,10 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     void saveCurrentFile();
   }
+});
+
+window.addEventListener('ai-ide-save-current-file', () => {
+  void saveCurrentFile();
 });
 
 window.addEventListener('keyup', (event) => {
@@ -779,6 +1359,8 @@ openProjectButton.addEventListener('click', async () => {
       tutorStatus.textContent = '已取消打开项目';
       return;
     }
+
+    clearCollabRemoteProject();
 
     await activateRealProject(result, result.lastOpenFile ?? '');
     tutorStatus.textContent = `✓ 已读取 ${projectFiles.length} 个代码文件`;
@@ -2463,7 +3045,25 @@ async function openRealProjectFile(
 ): Promise<void> {
   clearExternalChangeState();
   tutorStatus.textContent = `正在打开 ${path}…`;
-  const result = await window.tutorIde.readProjectFile(path);
+
+  const currentRoot =
+    projectRoot.textContent
+      ?.trim()
+      ?? '';
+
+  const remoteCollab =
+    hasCollabRemoteProject(
+      currentRoot,
+    );
+
+  const result =
+    remoteCollab
+      ? await readCollabRemoteProjectFile(
+          path,
+        )
+      : await window.tutorIde
+          .readProjectFile(path);
+
   const file = {
     path: result.path,
     language: languageFromPath(result.path),
@@ -2476,13 +3076,24 @@ async function openRealProjectFile(
     editorController.openFileContent(file);
   }
 
-  await codeNoteController.openFile(file.path);
-  await window.tutorIde.watchProjectFile(file.path);
+  if (remoteCollab) {
+    codeNoteController.disable();
+  } else {
+    await codeNoteController.openFile(
+      file.path,
+    );
+    await window.tutorIde
+      .watchProjectFile(file.path);
+  }
+
   updateActiveFile();
   updateFileTreeSelection(revealInTree);
-  tutorStatus.textContent = editorController.isDirty()
-    ? `已打开 ${path} · 保留未保存修改`
-    : `已打开 ${path}`;
+  tutorStatus.textContent =
+    remoteCollab
+      ? `已打开好友文件 ${path} · 远程只读`
+      : editorController.isDirty()
+        ? `已打开 ${path} · 保留未保存修改`
+        : `已打开 ${path}`;
 }
 
 async function handleExternalFileChanged(path: string): Promise<void> {

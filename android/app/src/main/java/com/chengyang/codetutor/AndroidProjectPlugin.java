@@ -1,6 +1,8 @@
 package com.chengyang.codetutor;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -290,6 +292,75 @@ public class AndroidProjectPlugin extends Plugin {
                 error
             );
         }
+    }
+
+    @PluginMethod
+    public void writeClipboard(
+        PluginCall call
+    ) {
+        String text =
+            call.getString("text", "");
+
+        ClipboardManager clipboard =
+            (ClipboardManager)
+                getContext().getSystemService(
+                    Context.CLIPBOARD_SERVICE
+                );
+
+        if (clipboard == null) {
+            call.reject("Clipboard unavailable.");
+            return;
+        }
+
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(
+                "Code Tutor IDE",
+                text
+            )
+        );
+
+        JSObject result = new JSObject();
+        result.put("value", true);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void readClipboard(
+        PluginCall call
+    ) {
+        ClipboardManager clipboard =
+            (ClipboardManager)
+                getContext().getSystemService(
+                    Context.CLIPBOARD_SERVICE
+                );
+
+        if (clipboard == null) {
+            call.reject("Clipboard unavailable.");
+            return;
+        }
+
+        String text = "";
+        ClipData clip =
+            clipboard.getPrimaryClip();
+
+        if (
+            clip != null
+                && clip.getItemCount() > 0
+        ) {
+            CharSequence value =
+                clip.getItemAt(0)
+                    .coerceToText(
+                        getContext()
+                    );
+
+            if (value != null) {
+                text = value.toString();
+            }
+        }
+
+        JSObject result = new JSObject();
+        result.put("text", text);
+        call.resolve(result);
     }
 
     @PluginMethod
@@ -1014,8 +1085,13 @@ public class AndroidProjectPlugin extends Plugin {
         if (lower.endsWith(".xml")) {
             return "application/xml";
         }
+        if (lower.endsWith(".txt")) {
+            return "text/plain";
+        }
 
-        return "text/plain";
+        // Avoid provider-added .txt for source-code file names.
+        // File contents are still read and written as UTF-8 text.
+        return "application/octet-stream";
     }
 
     private String guessMimeType(String path) {

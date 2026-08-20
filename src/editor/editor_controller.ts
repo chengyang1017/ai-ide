@@ -3,6 +3,89 @@ import type { TutorFocus } from '../core/ai_tutor_plan';
 import type { SemanticFocus } from '../core/semantic_navigation';
 import { monaco } from './monaco_setup';
 
+interface CodeLayout {
+  fontSize: number;
+  lineHeight: number;
+  gutterWidth: number;
+  contentGap: number;
+  topPadding: number;
+  bottomPadding: number;
+  fontFamily: string;
+}
+
+function readCssNumber(
+  name: string,
+  fallback: number,
+): number {
+  const raw =
+    getComputedStyle(
+      document.documentElement,
+    )
+      .getPropertyValue(name)
+      .trim();
+
+  const parsed =
+    Number.parseFloat(raw);
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : fallback;
+}
+
+function readCssText(
+  name: string,
+  fallback: string,
+): string {
+  const value =
+    getComputedStyle(
+      document.documentElement,
+    )
+      .getPropertyValue(name)
+      .trim();
+
+  return value || fallback;
+}
+
+function readCodeLayout(): CodeLayout {
+  return {
+    fontSize:
+      readCssNumber(
+        '--code-font-size',
+        15,
+      ),
+    lineHeight:
+      readCssNumber(
+        '--code-line-height',
+        24,
+      ),
+    gutterWidth:
+      readCssNumber(
+        '--code-gutter-width',
+        56,
+      ),
+    contentGap:
+      readCssNumber(
+        '--code-content-gap',
+        12,
+      ),
+    topPadding:
+      readCssNumber(
+        '--code-top-padding',
+        42,
+      ),
+    bottomPadding:
+      readCssNumber(
+        '--code-bottom-padding',
+        18,
+      ),
+    fontFamily:
+      readCssText(
+        '--code-font-family',
+        'Cascadia Code, JetBrains Mono, Consolas, monospace',
+      ),
+  };
+}
+
 
 interface RuntimeTextModel extends monaco.editor.ITextModel {
   getWordAtPosition(position: { lineNumber: number; column: number }): {
@@ -59,12 +142,16 @@ export class EditorController {
     }
 
     this.currentPath = first.path;
+
+    const codeLayout =
+      readCodeLayout();
+
     this.editor = monaco.editor.create(container, {
       model: this.requireModel(first.path),
       automaticLayout: true,
-      fontSize: 15,
-      lineHeight: 24,
-      fontFamily: 'Cascadia Code, JetBrains Mono, Consolas, monospace',
+      fontSize: codeLayout.fontSize,
+      lineHeight: codeLayout.lineHeight,
+      fontFamily: codeLayout.fontFamily,
       minimap: {
         enabled: true,
         side: 'right',
@@ -93,10 +180,38 @@ export class EditorController {
         enabled: true,
         maxLineCount: 3,
       },
-      padding: { top: 42, bottom: 18 },
-      glyphMargin: true,
-      renderLineHighlight: 'all',
+      padding: {
+        top: codeLayout.topPadding,
+        bottom: codeLayout.bottomPadding,
+      },
+      glyphMargin: false,
+      folding: false,
+      lineNumbers: 'on',
+      lineNumbersMinChars: 1,
+      lineDecorationsWidth: 0,
+      renderLineHighlight: 'none',
       cursorSmoothCaretAnimation: 'on',
+    });
+
+    const initialLayout =
+      this.editor.getLayoutInfo();
+
+    const targetContentLeft =
+      codeLayout.gutterWidth
+        + codeLayout.contentGap;
+
+    const correctedDecorationsWidth =
+      Math.max(
+        0,
+        Math.round(
+          targetContentLeft
+            - initialLayout.contentLeft,
+        ),
+      );
+
+    this.editor.updateOptions({
+      lineDecorationsWidth:
+        correctedDecorationsWidth,
     });
 
     this.highlightCollection = this.editor.createDecorationsCollection();

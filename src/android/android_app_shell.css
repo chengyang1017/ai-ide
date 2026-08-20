@@ -111,7 +111,7 @@ html[data-android-app='true'] .reader-surface {
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   min-height: calc(58px + env(safe-area-inset-bottom));
   padding:
     4px
@@ -442,4 +442,180 @@ html[data-android-app='true'] .reader-scroll {
   max-height: none !important;
   overflow: auto !important;
   touch-action: pan-x pan-y !important;
+}
+
+/* V19 touch editor */
+.android-editor-toolbar[hidden] {
+  display: none !important;
+}
+
+.android-editor-toolbar {
+  position: fixed;
+  z-index: 1460;
+  right: 0;
+  bottom:
+    calc(
+      58px
+        + env(safe-area-inset-bottom)
+    );
+  left: 0;
+  display: grid;
+  grid-template-columns:
+    repeat(6, minmax(0, 1fr));
+  min-height: 44px;
+  padding:
+    3px
+    max(
+      4px,
+      env(safe-area-inset-right)
+    )
+    3px
+    max(
+      4px,
+      env(safe-area-inset-left)
+    );
+  border-top:
+    1px solid rgba(255,255,255,.07);
+  background:
+    rgba(18,21,29,.97);
+  box-shadow:
+    0 -8px 22px rgba(0,0,0,.22);
+  backdrop-filter: blur(16px);
+}
+
+.android-editor-toolbar > button {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0;
+  min-width: 0;
+  min-height: 38px;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(231,237,247,.72);
+}
+
+.android-editor-toolbar > button > span {
+  font-size: 15px;
+  line-height: 17px;
+}
+
+.android-editor-toolbar > button > small {
+  font-size: 9px;
+  line-height: 11px;
+  white-space: nowrap;
+}
+
+.android-editor-toolbar >
+button[data-active='true'] {
+  background:
+    rgba(77,180,255,.16);
+  color: #f4f8ff;
+}
+
+html[
+  data-android-app='true'
+][
+  data-android-editor-toolbar='true'
+] .ide-shell {
+  padding-bottom:
+    calc(
+      102px
+        + env(safe-area-inset-bottom)
+    );
+}
+
+html[data-android-app='true']
+.editor-stage[
+  data-android-touch-selecting='true'
+] .editor {
+  touch-action: none !important;
+}
+
+html[data-android-app='true']
+.monaco-editor
+.margin {
+  background: transparent !important;
+}
+
+html[data-android-app='true']
+.monaco-editor
+.margin-view-overlays
+.line-numbers {
+  color: var(--code-line-number-color) !important;
+  font-variant-numeric:
+    tabular-nums;
+}
+
+html[data-android-app='true']
+.monaco-editor
+.margin-view-overlays
+.current-line-margin {
+  border: 0 !important;
+}
+
+/* V21 Reader-identical Monaco gutter */
+html[data-android-app='true']
+.monaco-editor
+.margin-view-overlays
+.line-numbers {
+  left: 0 !important;
+  width:
+    calc(
+      var(--code-gutter-width)
+        - var(--code-line-number-right-padding)
+    ) !important;
+  padding: 0 !important;
+  text-align: right !important;
+  color:
+    var(--code-line-number-color)
+    !important;
+  font-family:
+    var(--code-font-family)
+    !important;
+  font-size:
+    var(--code-font-size)
+    !important;
+  line-height:
+    var(--code-line-height)
+    !important;
+  font-variant-numeric:
+    tabular-nums;
+}
+
+html[data-android-app='true']
+.monaco-editor
+.margin-view-overlays,
+html[data-android-app='true']
+.monaco-editor
+.margin {
+  background: transparent !important;
+}
+
+html[data-android-app='true']
+.monaco-editor
+.view-line,
+html[data-android-app='true']
+.monaco-editor
+.view-lines {
+  font-family:
+    var(--code-font-family)
+    !important;
+  font-size:
+    var(--code-font-size)
+    !important;
+  line-height:
+    var(--code-line-height)
+    !important;
+}
+
+html[data-android-app='true']
+.monaco-editor
+.current-line,
+html[data-android-app='true']
+.monaco-editor
+.current-line-margin {
+  border: 0 !important;
 }

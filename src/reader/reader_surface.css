@@ -87,18 +87,15 @@
   min-height: 100%;
   margin: 0;
   padding:
-    42px
+    var(--code-top-padding)
     48px
-    18px
+    var(--code-bottom-padding)
     0;
   white-space: pre;
   overflow: visible;
-  font:
-    15px/24px
-    "Cascadia Code",
-    "JetBrains Mono",
-    Consolas,
-    monospace;
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
+  font-family: var(--code-font-family);
   tab-size: 2;
 }
 
@@ -115,7 +112,7 @@
   align-items: stretch;
   box-sizing: border-box;
   min-width: max-content;
-  min-height: 24px;
+  min-height: var(--code-line-height);
   white-space: pre;
 }
 
@@ -123,11 +120,11 @@
   position: sticky;
   left: 0;
   z-index: 6;
-  flex: 0 0 56px;
+  flex: 0 0 var(--code-gutter-width);
   box-sizing: border-box;
-  width: 56px;
-  min-width: 56px;
-  padding-right: 10px;
+  width: var(--code-gutter-width);
+  min-width: var(--code-gutter-width);
+  padding-right: var(--code-line-number-right-padding);
   background:
     var(
       --reader-surface-bg,
@@ -137,7 +134,7 @@
     8px 0 12px
     -10px
     rgba(0, 0, 0, 0.9);
-  color: #626a77;
+  color: var(--code-line-number-color);
   text-align: right;
   font: inherit;
   font-variant-numeric:
@@ -161,7 +158,7 @@
   display: block;
   flex: 0 0 auto;
   min-width: max-content;
-  padding-left: 12px;
+  padding-left: var(--code-content-gap);
   white-space: pre;
   font: inherit;
 }

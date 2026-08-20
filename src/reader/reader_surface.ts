@@ -506,20 +506,12 @@ export function installReaderSurface(
             template.innerHTML =
               html;
 
-            if (
-              (
-                template.content
-                  .textContent
-                  ?? ''
-              ) === sourceLine
-            ) {
-              content.append(
-                template.content
-                  .cloneNode(true),
-              );
+            content.append(
+              template.content
+                .cloneNode(true),
+            );
 
-              rendered = true;
-            }
+            rendered = true;
           } catch {
             // Fall back to plain text for this line only.
           }
@@ -871,68 +863,125 @@ export function installReaderSurface(
     return rect;
   };
 
-  const rangeForSelection = (
+  const rangesForSelection = (
     selection: ReaderSelectionDetail,
-  ): Range | null => {
+  ): Range[] => {
     if (
       selection.filePath
         !== editorController.path
     ) {
-      return null;
+      return [];
     }
 
-    const startOffset =
-      offsetFromLineColumn(
-        currentContent,
-        selection.startLine,
-        selection.startColumn,
+    const lines =
+      sourceLines();
+
+    const startLine =
+      Math.max(
+        1,
+        Math.min(
+          lines.length,
+          selection.startLine,
+        ),
       );
 
-    const endOffset =
-      offsetFromLineColumn(
-        currentContent,
-        selection.endLine,
-        selection.endColumn,
+    const endLine =
+      Math.max(
+        startLine,
+        Math.min(
+          lines.length,
+          selection.endLine,
+        ),
       );
 
-    if (endOffset <= startOffset) {
-      return null;
-    }
+    const ranges:
+      Range[] = [];
 
-    const startPoint =
-      domPointFromOffset(
-        startOffset,
-      );
-
-    const endPoint =
-      domPointFromOffset(
-        endOffset,
-      );
-
-    if (
-      !startPoint
-        || !endPoint
+    for (
+      let line = startLine;
+      line <= endLine;
+      line += 1
     ) {
-      return null;
+      const lineText =
+        lines[line - 1]
+          ?? '';
+
+      const startColumn =
+        line === startLine
+          ? selection.startColumn
+          : 1;
+
+      const endColumn =
+        line === endLine
+          ? selection.endColumn
+          : lineText.length + 1;
+
+      const safeStartColumn =
+        Math.max(
+          1,
+          Math.min(
+            lineText.length + 1,
+            startColumn,
+          ),
+        );
+
+      const safeEndColumn =
+        Math.max(
+          safeStartColumn,
+          Math.min(
+            lineText.length + 1,
+            endColumn,
+          ),
+        );
+
+      if (
+        safeEndColumn
+          <= safeStartColumn
+      ) {
+        continue;
+      }
+
+      const startPoint =
+        domPointWithinLine(
+          line,
+          safeStartColumn - 1,
+        );
+
+      const endPoint =
+        domPointWithinLine(
+          line,
+          safeEndColumn - 1,
+        );
+
+      if (
+        !startPoint
+          || !endPoint
+      ) {
+        continue;
+      }
+
+      const range =
+        document.createRange();
+
+      try {
+        range.setStart(
+          startPoint.node,
+          startPoint.offset,
+        );
+        range.setEnd(
+          endPoint.node,
+          endPoint.offset,
+        );
+      } catch {
+        continue;
+      }
+
+      ranges.push(
+        range,
+      );
     }
 
-    const range =
-      document.createRange();
-
-    try {
-      range.setStart(
-        startPoint.node,
-        startPoint.offset,
-      );
-      range.setEnd(
-        endPoint.node,
-        endPoint.offset,
-      );
-    } catch {
-      return null;
-    }
-
-    return range;
+    return ranges;
   };
 
   const renderFocusMarkers =
@@ -953,23 +1002,30 @@ export function installReaderSurface(
         const remote
           of remoteSelections
       ) {
-        const range =
-          rangeForSelection(
+        const ranges =
+          rangesForSelection(
             remote.selection,
           );
 
-        if (!range) {
+        if (
+          ranges.length === 0
+        ) {
           continue;
         }
 
         const rawRects =
-          Array.from(
-            range.getClientRects(),
-          ).filter(
-            (rect) =>
-              rect.width > 0
-                && rect.height > 0,
-          );
+          ranges
+            .flatMap(
+              (range) =>
+                Array.from(
+                  range.getClientRects(),
+                ),
+            )
+            .filter(
+              (rect) =>
+                rect.width > 0
+                  && rect.height > 0,
+            );
 
         const lineRects:
           Array<{

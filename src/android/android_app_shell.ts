@@ -30,6 +30,7 @@ function installAndroidAppShell(): boolean {
     bottomNav.setAttribute('aria-label', 'Android 主导航');
     bottomNav.innerHTML = `
       <button type="button" data-android-nav="files"><span>☰</span><small>文件</small></button>
+      <button type="button" data-android-nav="save" aria-label="&#20445;&#23384;&#24403;&#21069;&#25991;&#20214;"><span>&#128190;</span><small>&#20445;&#23384;</small></button>
       <button type="button" data-android-nav="project"><span>📂</span><small>项目</small></button>
       <button type="button" data-android-nav="collab"><span>👥</span><small>协作</small></button>
       <button type="button" data-android-nav="ai"><span>✨</span><small>AI</small></button>
@@ -67,6 +68,171 @@ function installAndroidAppShell(): boolean {
   const nav = bottomNav;
   const actionSheet = sheet;
   const ideShell = shell;
+
+  let editorToolbar =
+    document.querySelector<HTMLElement>(
+      '.android-editor-toolbar',
+    );
+
+  if (!editorToolbar) {
+    editorToolbar =
+      document.createElement('nav');
+    editorToolbar.className =
+      'android-editor-toolbar';
+    editorToolbar.hidden = true;
+    editorToolbar.setAttribute(
+      'aria-label',
+      'Touch editor tools',
+    );
+
+    editorToolbar.innerHTML = `
+      <button type="button" data-android-edit="select"><span>&#10010;</span><small>\u9009\u53d6</small></button>
+      <button type="button" data-android-edit="copy"><span>&#128203;</span><small>\u590d\u5236</small></button>
+      <button type="button" data-android-edit="paste"><span>&#128221;</span><small>\u7c98\u8d34</small></button>
+      <button type="button" data-android-edit="all"><span>A</span><small>\u5168\u9009</small></button>
+      <button type="button" data-android-edit="undo"><span>&#8630;</span><small>\u64a4\u9500</small></button>
+      <button type="button" data-android-edit="redo"><span>&#8631;</span><small>\u91cd\u505a</small></button>
+    `;
+
+    document.body.append(
+      editorToolbar,
+    );
+  }
+
+  const touchToolbar =
+    editorToolbar;
+
+  function setTouchSelectionActive(
+    active: boolean,
+  ): void {
+    const button =
+      touchToolbar
+        .querySelector<HTMLButtonElement>(
+          '[data-android-edit="select"]',
+        );
+
+    if (button) {
+      button.dataset.active =
+        String(active);
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(
+        'ai-ide-editor-touch-select-toggle',
+        {
+          detail: {
+            active,
+          },
+        },
+      ),
+    );
+  }
+
+  function syncEditorToolbar(): void {
+    const stage =
+      document.querySelector<HTMLElement>(
+        '.editor-stage',
+      );
+
+    const visible =
+      stage?.dataset.editorSurface
+        === 'editor';
+
+    touchToolbar.hidden =
+      !visible;
+
+    document.documentElement
+      .dataset.androidEditorToolbar =
+        String(visible);
+
+    if (!visible) {
+      setTouchSelectionActive(
+        false,
+      );
+    }
+  }
+
+  if (
+    touchToolbar.dataset.bound
+      !== 'true'
+  ) {
+    touchToolbar.dataset.bound =
+      'true';
+
+    touchToolbar.addEventListener(
+      'click',
+      (event) => {
+        const element =
+          event.target as HTMLElement | null;
+
+        const button =
+          element?.closest<HTMLButtonElement>(
+            '[data-android-edit]',
+          );
+
+        if (!button) {
+          return;
+        }
+
+        const action =
+          button.dataset.androidEdit;
+
+        if (action === 'select') {
+          setTouchSelectionActive(
+            button.dataset.active
+              !== 'true',
+          );
+          return;
+        }
+
+        if (action === 'copy') {
+          window.dispatchEvent(
+            new Event(
+              'ai-ide-editor-copy-request',
+            ),
+          );
+          return;
+        }
+
+        if (action === 'paste') {
+          setTouchSelectionActive(
+            false,
+          );
+          window.dispatchEvent(
+            new Event(
+              'ai-ide-editor-native-paste-request',
+            ),
+          );
+          return;
+        }
+
+        if (action === 'all') {
+          window.dispatchEvent(
+            new Event(
+              'ai-ide-editor-select-all',
+            ),
+          );
+          return;
+        }
+
+        if (
+          action === 'undo'
+            || action === 'redo'
+        ) {
+          window.dispatchEvent(
+            new CustomEvent(
+              'ai-ide-editor-history',
+              {
+                detail: {
+                  action,
+                },
+              },
+            ),
+          );
+        }
+      },
+    );
+  }
 
   const projectSlot = actionSheet.querySelector<HTMLElement>('[data-android-slot="project"]')!;
   const aiSlot = actionSheet.querySelector<HTMLElement>('[data-android-slot="ai"]')!;
@@ -156,6 +322,13 @@ function installAndroidAppShell(): boolean {
       const action = button.dataset.androidNav;
       if (action === 'files') {
         toggleFiles();
+      } else if (action === 'save') {
+        closeSheet();
+        window.dispatchEvent(
+          new Event(
+            'ai-ide-save-current-file',
+          ),
+        );
       } else if (action === 'collab') {
         openCollab();
       } else if (action === 'project' || action === 'ai' || action === 'more') {
@@ -233,6 +406,41 @@ function installAndroidAppShell(): boolean {
   }
 
   syncControls();
+
+  const editorStageForToolbar =
+    document.querySelector<HTMLElement>(
+      '.editor-stage',
+    );
+
+  if (
+    editorStageForToolbar
+      && editorStageForToolbar
+        .dataset
+        .androidEditorToolbarObserved
+        !== 'true'
+  ) {
+    editorStageForToolbar
+      .dataset
+      .androidEditorToolbarObserved =
+        'true';
+
+    const editorToolbarObserver =
+      new MutationObserver(
+        syncEditorToolbar,
+      );
+
+    editorToolbarObserver.observe(
+      editorStageForToolbar,
+      {
+        attributes: true,
+        attributeFilter: [
+          'data-editor-surface',
+        ],
+      },
+    );
+  }
+
+  syncEditorToolbar();
 
   const overlayVisibilityObserver =
     new MutationObserver(() => {
