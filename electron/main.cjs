@@ -91,7 +91,7 @@ function createWindow() {
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 980,
+    minWidth: 720,
     minHeight: 640,
     backgroundColor: chrome.backgroundColor,
     title: 'AI Code Tutor IDE',

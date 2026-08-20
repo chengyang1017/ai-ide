@@ -1,4 +1,10 @@
 import './styles.css';
+import './tablet.css';
+import './tablet_dual.css';
+import './tablet/tablet_ui';
+import './tablet/tablet_size';
+import './tablet/tablet_bootstrap';
+import './android/android_tutor_ide';
 import { CharacterController } from './character/character_controller';
 import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
@@ -161,7 +167,7 @@ app.innerHTML = `
       <div class="api-key-dialog-header">
         <div>
           <strong id="api-key-title">OpenAI API Key</strong>
-          <p>使用 Electron safeStorage 加密后保存到本机；Windows 使用当前用户的 DPAPI 保护。</p>
+          <p>使用系统安全存储加密后保存到本机；Windows 使用 Electron safeStorage，Android 使用 Android Keystore。</p>
         </div>
         <button id="api-key-close" class="icon-button" type="button" aria-label="关闭">×</button>
       </div>
@@ -471,6 +477,7 @@ const characterController = new CharacterController(
 );
 
 let projectFiles: string[] = demoFiles.map((file) => file.path);
+let projectDirectories: string[] = [];
 let isRealProject = false;
 let projectLoadSequence = 0;
 let relatedTourSequence = 0;
@@ -669,6 +676,19 @@ window.addEventListener('keyup', (event) => {
 window.addEventListener('blur', () => {
   ctrlNavigationPressed = false;
   editorController.clearDefinitionHint();
+});
+
+window.addEventListener('android-project-snapshot', (event) => {
+  void applyAndroidProjectSnapshot(
+    event as CustomEvent<{
+      rootPath: string;
+      projectName: string;
+      files: string[];
+      directories?: string[];
+      preferredFile?: string;
+      message?: string;
+    }>,
+  );
 });
 
 openProjectButton.addEventListener('click', async () => {
@@ -2183,10 +2203,17 @@ async function initializeApplication(): Promise<void> {
 }
 
 async function activateRealProject(
-  result: { rootPath: string; projectName: string; files: string[] },
+  result: {
+    rootPath: string;
+    projectName: string;
+    files: string[];
+    directories?: string[];
+  },
   preferredFile: string,
 ): Promise<void> {
   projectFiles = result.files;
+  projectDirectories =
+    result.directories ?? [];
   isRealProject = true;
   projectName.textContent = `▾ ${result.projectName}`;
   projectRoot.textContent = result.rootPath;
@@ -2196,7 +2223,10 @@ async function activateRealProject(
   semanticAiTourButton.disabled = false;
   explainCurrentCodeButton.disabled = false;
   aiTourButton.disabled = false;
-  renderFileTree(projectFiles);
+  renderFileTree(
+    projectFiles,
+    projectDirectories,
+  );
   characterController.clear('项目已打开');
 
   const targetFile = preferredFile && projectFiles.includes(preferredFile)
@@ -2211,11 +2241,69 @@ async function activateRealProject(
   await openRealProjectFile(targetFile, true, true);
 }
 
-function renderFileTree(paths: string[]): void {
+async function applyAndroidProjectSnapshot(
+  event: CustomEvent<{
+    rootPath: string;
+    projectName: string;
+    files: string[];
+    directories?: string[];
+    preferredFile?: string;
+    message?: string;
+  }>,
+): Promise<void> {
+  const snapshot = event.detail;
+
+  projectFiles = snapshot.files;
+  projectDirectories =
+    snapshot.directories ?? [];
+  isRealProject = true;
+
+  projectName.textContent =
+    `▾ ${snapshot.projectName}`;
+  projectRoot.textContent =
+    snapshot.rootPath;
+  workspaceBadge.textContent =
+    '真实项目';
+
+  renderFileTree(
+    projectFiles,
+    projectDirectories,
+  );
+
+  const preferredFile =
+    snapshot.preferredFile ?? '';
+
+  if (
+    preferredFile
+      && projectFiles.includes(
+        preferredFile,
+      )
+  ) {
+    await openRealProjectFile(
+      preferredFile,
+      false,
+      true,
+    );
+  } else {
+    updateFileTreeSelection(true);
+  }
+
+  tutorStatus.textContent =
+    snapshot.message
+      ?? `✓ 项目目录已刷新 · ${projectFiles.length} 个代码文件`;
+}
+
+function renderFileTree(
+  paths: string[],
+  directories: string[] = [],
+): void {
   fileTree.replaceChildren();
   expandedDirectories.clear();
 
-  if (paths.length === 0) {
+  if (
+    paths.length === 0
+      && directories.length === 0
+  ) {
     const empty = document.createElement('div');
     empty.className = 'file-tree-empty';
     empty.textContent = '没有找到支持的代码文件';
@@ -2223,7 +2311,10 @@ function renderFileTree(paths: string[]): void {
     return;
   }
 
-  const tree = buildTree(paths);
+  const tree = buildTree(
+    paths,
+    directories,
+  );
   renderTreeNodes(tree, fileTree, 0);
   updateFileTreeSelection(false);
 }
@@ -2447,13 +2538,53 @@ interface TreeFileNode {
 
 type TreeNode = TreeDirectoryNode | TreeFileNode;
 
-function buildTree(paths: string[]): TreeNode[] {
+function buildTree(
+  paths: string[],
+  directories: string[] = [],
+): TreeNode[] {
   const root: TreeDirectoryNode = {
     type: 'directory',
     name: '',
     path: '',
     children: [],
   };
+
+  for (
+    const directoryPath of directories
+  ) {
+    const parts =
+      directoryPath
+        .split('/')
+        .filter(Boolean);
+    let directory = root;
+
+    for (const part of parts) {
+      let child =
+        directory.children.find(
+          (
+            node,
+          ): node is TreeDirectoryNode =>
+            node.type === 'directory'
+              && node.name === part,
+        );
+
+      if (!child) {
+        const parentPath =
+          directory.path;
+        child = {
+          type: 'directory',
+          name: part,
+          path: parentPath
+            ? `${parentPath}/${part}`
+            : part,
+          children: [],
+        };
+        directory.children.push(child);
+      }
+
+      directory = child;
+    }
+  }
 
   for (const filePath of paths) {
     const parts = filePath.split('/').filter(Boolean);

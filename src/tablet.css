@@ -1,0 +1,325 @@
+/* AI Code Tutor IDE · Tablet layout
+   Desktop stays unchanged above 1180px.
+   8-9" compact tablets and 10-12" large tablets share the same responsive shell. */
+
+.tablet-sidebar-toggle,
+.tablet-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  html,
+  body,
+  #app {
+    overscroll-behavior: none;
+  }
+
+  .ide-shell {
+    --tablet-touch: 42px;
+  }
+
+  .titlebar {
+    min-height: 46px;
+    padding-left: 8px;
+  }
+
+  .brand {
+    min-width: 0;
+  }
+
+  .brand small {
+    display: none;
+  }
+
+  .titlebar-right {
+    min-width: 0;
+    gap: 5px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .titlebar-right::-webkit-scrollbar {
+    display: none;
+  }
+
+  .titlebar-right > button,
+  .titlebar-right > select,
+  .toolbar-menu > summary {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+
+  .commandbar {
+    min-height: 50px;
+    gap: 6px;
+    padding: 4px 7px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .command-group {
+    flex: 0 0 auto;
+    min-height: 40px;
+    gap: 5px;
+    padding-top: 0;
+  }
+
+  .command-group-label {
+    display: none;
+  }
+
+  .command-group > button,
+  .command-group > select {
+    min-height: 38px;
+    height: 38px;
+    padding-inline: 10px;
+    font-size: 11px;
+  }
+
+  .workspace {
+    position: relative;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .editor-pane {
+    grid-column: 1 !important;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .sidebar {
+    position: absolute !important;
+    z-index: 260;
+    inset: 0 auto 0 0;
+    width: min(330px, 82vw) !important;
+    max-width: 82vw;
+    min-width: 0 !important;
+    transform: translateX(-103%);
+    transition: transform 180ms ease;
+    overflow: auto;
+    border-right: 1px solid rgb(255 255 255 / 12%);
+    box-shadow: 18px 0 42px rgb(0 0 0 / 42%);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ide-shell.tablet-sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .tablet-sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-width: 70px;
+    min-height: 36px;
+    height: 36px;
+    margin-right: 2px;
+    padding: 0 9px;
+    border: 1px solid #343b47;
+    border-radius: 7px;
+    background: #1a1e25;
+    color: #e4e8ef;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .tablet-sidebar-toggle[aria-expanded="true"] {
+    border-color: #7367db;
+    background: #29254a;
+  }
+
+  .tablet-sidebar-backdrop {
+    display: block;
+    position: absolute;
+    z-index: 250;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    border: 0;
+    padding: 0;
+    background: rgb(0 0 0 / 36%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+  }
+
+  .ide-shell.tablet-sidebar-open .tablet-sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .editor-tabbar {
+    min-height: 42px;
+    gap: 6px;
+    padding-inline: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .editor-tabbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .code-note-hint {
+    display: none;
+  }
+
+  .file-item {
+    min-height: var(--tablet-touch);
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .editor-stage {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .speech-bubble {
+    top: auto !important;
+    right: 10px !important;
+    bottom: 10px !important;
+    left: 10px !important;
+    width: auto !important;
+    max-width: min(720px, calc(100vw - 20px));
+    max-height: 72px;
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 17px;
+    white-space: normal;
+  }
+
+  .editor-stage:has(.monaco-editor .find-widget.visible) .speech-bubble {
+    opacity: 0 !important;
+    visibility: hidden !important;
+  }
+
+  .tutor-character .robot {
+    scale: .8;
+    transform-origin: 50% 50%;
+  }
+
+  .toolbar-menu-panel,
+  .voice-settings-panel {
+    max-width: min(92vw, 430px);
+    max-height: 72vh;
+    overflow: auto;
+  }
+
+  .settings-dialog,
+  .appearance-dialog {
+    width: min(94vw, 900px) !important;
+    max-height: 88vh !important;
+  }
+}
+
+/* Compact tablet: Honor Pad X7 class / similar 8-9" devices. */
+@media (max-width: 820px) {
+  .ide-shell {
+    --tablet-touch: 40px;
+  }
+
+  .titlebar {
+    min-height: 44px;
+    padding-left: 5px;
+  }
+
+  .brand strong {
+    display: block;
+    max-width: 118px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+
+  .titlebar-right {
+    gap: 4px;
+  }
+
+  .titlebar-right > button,
+  .titlebar-right > select,
+  .toolbar-menu > summary {
+    min-height: 36px;
+    padding-inline: 7px;
+    font-size: 10px;
+  }
+
+  .commandbar {
+    min-height: 46px;
+    gap: 4px;
+    padding: 3px 5px;
+  }
+
+  .command-group {
+    min-height: 38px;
+    gap: 4px;
+  }
+
+  .command-group > button,
+  .command-group > select {
+    min-height: 36px;
+    height: 36px;
+    padding-inline: 8px;
+    font-size: 10px;
+  }
+
+  .sidebar {
+    width: min(290px, 86vw) !important;
+    max-width: 86vw;
+  }
+
+  .editor-tabbar {
+    min-height: 40px;
+    padding-inline: 4px;
+  }
+
+  .tablet-sidebar-toggle {
+    min-width: 64px;
+    min-height: 34px;
+    height: 34px;
+    padding-inline: 7px;
+    font-size: 10px;
+  }
+
+  .tutor-character .robot {
+    scale: .7;
+  }
+
+  .speech-bubble {
+    right: 7px !important;
+    bottom: 7px !important;
+    left: 7px !important;
+    max-width: calc(100vw - 14px);
+    max-height: 62px;
+    padding: 6px 8px;
+    font-size: 10px;
+    line-height: 15px;
+  }
+
+  .statusbar {
+    font-size: 9px;
+    overflow: hidden;
+  }
+
+  .statusbar > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

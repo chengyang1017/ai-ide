@@ -53,12 +53,14 @@ declare global {
         rootPath: string;
         projectName: string;
         files: string[];
+        directories?: string[];
         lastOpenFile?: string;
       } | null>;
       restoreProject(): Promise<{
         rootPath: string;
         projectName: string;
         files: string[];
+        directories?: string[];
         lastOpenFile: string;
       } | null>;
       readProjectFile(relativePath: string): Promise<{

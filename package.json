@@ -11,6 +11,9 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "monaco-editor": "0.56.0"
   },
   "devDependencies": {
