@@ -276,8 +276,21 @@ export function installMemorizeMode(
     resetResult();
     setAnswerVisible(false);
 
-    editorController.editor.focus();
-    syncSelection();
+    if (
+      editorStage.dataset.editorSurface
+        !== 'reader'
+    ) {
+      editorController.editor.focus();
+      syncSelection();
+    } else {
+      hideEntryButton();
+    }
+
+    window.dispatchEvent(
+      new Event(
+        'ai-ide-memorize-closed',
+      ),
+    );
   };
 
   const checkAnswer = (): void => {
@@ -328,6 +341,34 @@ export function installMemorizeMode(
 
   closeButton.addEventListener('click', closeMemorize);
 
+  const onExternalSelection = (
+    event: Event,
+  ): void => {
+    const detail =
+      (
+        event as CustomEvent<
+          SelectedCode
+        >
+      ).detail;
+
+    if (
+      !detail
+        || detail.code.trim().length
+          === 0
+    ) {
+      return;
+    }
+
+    openMemorize({
+      ...detail,
+    });
+  };
+
+  window.addEventListener(
+    'ai-ide-memorize-selection',
+    onExternalSelection,
+  );
+
   const selectionDisposable =
     editorController.editor.onDidChangeCursorSelection(
       syncSelection,
@@ -367,6 +408,10 @@ export function installMemorizeMode(
       'keydown',
       onKeyDown,
       true,
+    );
+    window.removeEventListener(
+      'ai-ide-memorize-selection',
+      onExternalSelection,
     );
     entryButton.remove();
     overlay.remove();
