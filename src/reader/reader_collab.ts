@@ -115,8 +115,16 @@ interface InviteSentMessage {
   targetUserId: string;
 }
 
+interface AuthOkMessage {
+  type: 'auth-ok';
+  userId: string;
+  name: string;
+  sessionToken?: string;
+}
+
 type ServerMessage =
   | HelloAckMessage
+  | AuthOkMessage
   | ProtocolErrorMessage
   | RoomStateMessage
   | ErrorMessage
@@ -140,6 +148,8 @@ const NAME_STORAGE_KEY =
   'ai-code-tutor.reader-room-name';
 const USER_ID_STORAGE_KEY =
   'ai-code-tutor.reader-friend-user-id';
+const SESSION_STORAGE_KEY =
+  'ai-code-tutor.reader-account-session';
 const FRIENDS_STORAGE_KEY =
   'ai-code-tutor.reader-friends';
 
@@ -216,12 +226,13 @@ function initialCollabServer():
 }
 
 const COLLAB_PROTOCOL_VERSION =
-  24;
+  26;
 
 const PROTOCOL_HANDSHAKE_TIMEOUT_MS =
   1800;
 
 const COLLAB_CAPABILITIES = [
+  'account-auth',
   'friend-directory',
   'friend-invite',
   'room',
@@ -985,20 +996,44 @@ export function installReaderCollab():
 
       <section class="reader-friend-identity">
         <label>
-          <span>我的用户名</span>
-          <div class="reader-friend-inline">
-            <input
-              data-room-name
-              type="text"
-              maxlength="32"
-              placeholder="例如 ChengYang"
-            />
-            <button
-              type="button"
-              data-friend-save-name
-            >保存身份</button>
-          </div>
+          <span>账号用户名</span>
+          <input
+            data-room-name
+            type="text"
+            maxlength="32"
+            autocomplete="username"
+            placeholder="例如 ChengYang"
+          />
         </label>
+
+        <label>
+          <span>密码</span>
+          <input
+            data-account-password
+            type="password"
+            minlength="8"
+            maxlength="128"
+            autocomplete="current-password"
+            placeholder="至少 8 个字符"
+          />
+        </label>
+
+        <div class="reader-friend-inline">
+          <button
+            type="button"
+            class="primary-button"
+            data-account-login
+          >登录</button>
+          <button
+            type="button"
+            data-account-register
+          >注册</button>
+          <button
+            type="button"
+            data-account-logout
+            hidden
+          >退出账号</button>
+        </div>
 
         <small data-directory-status>
           正在连接好友服务…
@@ -1147,9 +1182,24 @@ export function installReaderCollab():
       '[data-room-name]',
     )!;
 
-  const saveNameButton =
+  const passwordInput =
+    modal.querySelector<HTMLInputElement>(
+      '[data-account-password]',
+    )!;
+
+  const loginButton =
     modal.querySelector<HTMLButtonElement>(
-      '[data-friend-save-name]',
+      '[data-account-login]',
+    )!;
+
+  const registerButton =
+    modal.querySelector<HTMLButtonElement>(
+      '[data-account-register]',
+    )!;
+
+  const logoutButton =
+    modal.querySelector<HTMLButtonElement>(
+      '[data-account-logout]',
     )!;
 
   const friendNameInput =
@@ -1323,6 +1373,15 @@ export function installReaderCollab():
   const userId =
     ensureUserId();
 
+  let accountUserId = '';
+  let accountName = '';
+  let sessionToken =
+    localStorage.getItem(
+      SESSION_STORAGE_KEY,
+    )
+      ?.trim()
+      ?? '';
+
   nameInput.value =
     localStorage.getItem(
       NAME_STORAGE_KEY,
@@ -1349,8 +1408,8 @@ export function installReaderCollab():
     );
   }
 
-  let storedFriends =
-    loadFriends();
+  let storedFriends:
+    StoredFriend[] = [];
 
   let onlineFriends =
     new Map<
@@ -1477,6 +1536,10 @@ export function installReaderCollab():
     };
 
   const currentName = (): string => {
+    if (accountName) {
+      return accountName;
+    }
+
     let name =
       nameInput.value.trim();
 
@@ -1899,6 +1962,15 @@ export function installReaderCollab():
   const sendDirectory = (
     message: object,
   ): void => {
+    if (!accountUserId) {
+      setFeedback(
+        '请先登录账号',
+        '登录后才能添加好友和发送协作邀请。',
+        'error',
+      );
+      return;
+    }
+
     if (
       directorySocket
         ?.readyState
@@ -1943,6 +2015,77 @@ export function installReaderCollab():
             ),
         }),
       );
+  };
+
+  let pendingAccountAction:
+    {
+      type:
+        | 'account-login'
+        | 'account-register';
+      name: string;
+      password: string;
+    } | null = null;
+
+  const sendAccountCredentials = (
+    type:
+      | 'account-login'
+      | 'account-register',
+  ): void => {
+    const name =
+      nameInput.value.trim();
+    const password =
+      passwordInput.value;
+
+    if (name.length < 2) {
+      setFeedback(
+        '用户名太短',
+        '用户名至少需要 2 个字符。',
+        'error',
+      );
+      nameInput.focus();
+      return;
+    }
+
+    if (password.length < 8) {
+      setFeedback(
+        '密码太短',
+        '密码至少需要 8 个字符。',
+        'error',
+      );
+      passwordInput.focus();
+      return;
+    }
+
+    pendingAccountAction = {
+      type,
+      name,
+      password,
+    };
+
+    const ready =
+      directorySocket
+        ?.readyState
+        === WebSocket.OPEN
+        && directoryProtocolReady;
+
+    if (!ready) {
+      setFeedback(
+        '正在连接账号服务',
+        '连接完成后会自动继续。',
+        'working',
+      );
+      connectDirectory();
+      return;
+    }
+
+    directorySocket!.send(
+      JSON.stringify({
+        ...pendingAccountAction,
+        legacyUserId:
+          userId,
+      }),
+    );
+    pendingAccountAction = null;
   };
 
   const connectDirectory = ():
@@ -2126,23 +2269,35 @@ export function installReaderCollab():
             directoryProtocolReady =
               true;
 
-            nextSocket.send(
-              JSON.stringify({
-                type:
-                  'directory-register',
-                userId,
-                name:
-                  currentName(),
-                friendIds:
-                  storedFriends.map(
-                    (friend) =>
-                      friend.userId,
-                  ),
-              }),
-            );
+            if (pendingAccountAction) {
+              nextSocket.send(
+                JSON.stringify({
+                  ...pendingAccountAction,
+                  legacyUserId:
+                    userId,
+                }),
+              );
+              pendingAccountAction = null;
+              directoryStatus.textContent =
+                '正在登录账号…';
+              return;
+            }
+
+            if (sessionToken) {
+              nextSocket.send(
+                JSON.stringify({
+                  type:
+                    'account-session',
+                  sessionToken,
+                }),
+              );
+              directoryStatus.textContent =
+                '正在恢复账号…';
+              return;
+            }
 
             directoryStatus.textContent =
-              `好友服务已连接 · 协议 v${message.protocolVersion}`;
+              `好友服务已连接 · 协议 v${message.protocolVersion} · 请登录`;
             return;
           }
 
@@ -2158,6 +2313,58 @@ export function installReaderCollab():
           }
 
           if (!directoryProtocolReady) {
+            return;
+          }
+
+          if (
+            message.type
+              === 'auth-ok'
+          ) {
+            accountUserId =
+              message.userId;
+            accountName =
+              message.name;
+
+            if (message.sessionToken) {
+              sessionToken =
+                message.sessionToken;
+              localStorage.setItem(
+                SESSION_STORAGE_KEY,
+                sessionToken,
+              );
+            }
+
+            nameInput.value =
+              message.name;
+            nameInput.disabled =
+              true;
+            passwordInput.value = '';
+            passwordInput.disabled =
+              true;
+            loginButton.hidden = true;
+            registerButton.hidden = true;
+            logoutButton.hidden = false;
+
+            localStorage.setItem(
+              NAME_STORAGE_KEY,
+              message.name,
+            );
+
+            storedFriends = [];
+            saveFriends(storedFriends);
+            onlineFriends = new Map();
+            friendRequests = [];
+            renderFriends();
+            renderFriendRequests();
+
+            directoryStatus.textContent =
+              `已登录 ${message.name} · 协议 v${COLLAB_PROTOCOL_VERSION}`;
+
+            setFeedback(
+              '账号已登录',
+              `${message.name} · 好友资料将从服务器同步。`,
+              'success',
+            );
             return;
           }
 
@@ -2179,18 +2386,9 @@ export function installReaderCollab():
               const friend
                 of message.friends
             ) {
-              const existing =
-                storedFriends.find(
-                  (item) =>
-                    item.userId
-                      === friend.userId,
-                );
-
               if (
-                existing
+                friend.userId
                   && friend.name
-                  && existing.name
-                    !== friend.name
               ) {
                 upsertStoredFriend({
                   userId:
@@ -2298,7 +2496,7 @@ export function installReaderCollab():
             setFeedback(
               '好友请求已发送',
               message.queued
-                ? `${message.targetName} 当前不在线，请求会在本次服务器运行期间等待对方上线。`
+                ? `${message.targetName} 当前不在线，请求已经保存，对方下次上线仍会收到。`
                 : `等待 ${message.targetName} 接受。`,
               'success',
             );
@@ -2334,6 +2532,33 @@ export function installReaderCollab():
             message.type
               === 'error'
           ) {
+            if (
+              message.code
+                === 'invalid_session'
+                || message.code
+                  === 'signed_in_elsewhere'
+            ) {
+              sessionToken = '';
+              accountUserId = '';
+              accountName = '';
+              localStorage.removeItem(
+                SESSION_STORAGE_KEY,
+              );
+              nameInput.disabled = false;
+              passwordInput.disabled = false;
+              loginButton.hidden = false;
+              registerButton.hidden = false;
+              logoutButton.hidden = true;
+              storedFriends = [];
+              saveFriends(storedFriends);
+              onlineFriends = new Map();
+              friendRequests = [];
+              renderFriends();
+              renderFriendRequests();
+              directoryStatus.textContent =
+                '请重新登录账号';
+            }
+
             setFeedback(
               '好友服务提示',
               message.message,
@@ -3769,16 +3994,75 @@ export function installReaderCollab():
     },
   );
 
-  saveNameButton.addEventListener(
+  loginButton.addEventListener(
     'click',
     () => {
-      currentName();
-      connectDirectory();
+      sendAccountCredentials(
+        'account-login',
+      );
+    },
+  );
 
+  registerButton.addEventListener(
+    'click',
+    () => {
+      sendAccountCredentials(
+        'account-register',
+      );
+    },
+  );
+
+  passwordInput.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        loginButton.click();
+      }
+    },
+  );
+
+  logoutButton.addEventListener(
+    'click',
+    () => {
+      if (
+        directorySocket
+          ?.readyState
+          === WebSocket.OPEN
+          && directoryProtocolReady
+          && accountUserId
+      ) {
+        directorySocket!.send(
+          JSON.stringify({
+            type:
+              'account-logout',
+          }),
+        );
+      }
+
+      sessionToken = '';
+      accountUserId = '';
+      accountName = '';
+      localStorage.removeItem(
+        SESSION_STORAGE_KEY,
+      );
+      nameInput.disabled = false;
+      passwordInput.disabled = false;
+      loginButton.hidden = false;
+      registerButton.hidden = false;
+      logoutButton.hidden = true;
+      storedFriends = [];
+      saveFriends(storedFriends);
+      onlineFriends = new Map();
+      friendRequests = [];
+      renderFriends();
+      renderFriendRequests();
+      directoryStatus.textContent =
+        `好友服务已连接 · 协议 v${COLLAB_PROTOCOL_VERSION} · 请登录`;
       setFeedback(
-        '身份已更新',
-        `你的用户名是 ${nameInput.value.trim()}。`,
-        'success',
+        '已退出账号',
+        '可以在这台设备登录其他账号。',
+        'info',
       );
     },
   );

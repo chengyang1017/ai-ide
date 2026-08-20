@@ -1,3 +1,13 @@
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from 'node:crypto';
+import {
+  promisify,
+} from 'node:util';
 import pg from 'pg';
 import {
   WebSocket,
@@ -7,6 +17,9 @@ import {
 const {
   Pool,
 } = pg;
+
+const scryptAsync =
+  promisify(scryptCallback);
 
 const port =
   Number.parseInt(
@@ -19,9 +32,10 @@ const host =
     ?? '0.0.0.0';
 
 const PROTOCOL_VERSION =
-  24;
+  26;
 
 const PROTOCOL_CAPABILITIES = [
+  'account-auth',
   'friend-directory',
   'friend-invite',
   'room',
@@ -64,6 +78,12 @@ const friendships =
   new Map();
 
 const pendingFriendRequests =
+  new Map();
+
+const memoryAccountSecrets =
+  new Map();
+
+const memorySessions =
   new Map();
 
 function friendshipPair(
@@ -145,6 +165,32 @@ async function initializePersistence() {
       last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await database.query(`
+    ALTER TABLE collab_users
+      ADD COLUMN IF NOT EXISTS password_salt TEXT
+  `);
+
+  await database.query(`
+    ALTER TABLE collab_users
+      ADD COLUMN IF NOT EXISTS password_hash TEXT
+  `);
+
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS collab_sessions (
+      session_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL
+        REFERENCES collab_users(user_id)
+        ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS collab_sessions_user_id_idx
+      ON collab_sessions(user_id)
   `);
 
   await database.query(`
@@ -483,6 +529,763 @@ async function touchPersistedUser(
       error,
     );
   }
+}
+
+function passwordValue(value) {
+  return typeof value === 'string'
+    ? value.slice(0, 128)
+    : '';
+}
+
+function accountSessionHash(token) {
+  return createHash('sha256')
+    .update(token)
+    .digest('hex');
+}
+
+async function derivePasswordHash(
+  password,
+  salt,
+) {
+  const result =
+    await scryptAsync(
+      password,
+      salt,
+      64,
+    );
+
+  return Buffer.from(result)
+    .toString('hex');
+}
+
+async function passwordMatches(
+  password,
+  salt,
+  expectedHash,
+) {
+  if (!salt || !expectedHash) {
+    return false;
+  }
+
+  const actualHash =
+    await derivePasswordHash(
+      password,
+      salt,
+    );
+
+  const actual =
+    Buffer.from(
+      actualHash,
+      'hex',
+    );
+  const expected =
+    Buffer.from(
+      expectedHash,
+      'hex',
+    );
+
+  return (
+    actual.length === expected.length
+      && timingSafeEqual(
+        actual,
+        expected,
+      )
+  );
+}
+
+async function createAccountSession(
+  userId,
+) {
+  const token =
+    randomBytes(32)
+      .toString('base64url');
+  const hash =
+    accountSessionHash(token);
+
+  if (database) {
+    await database.query(
+      `
+        DELETE FROM collab_sessions
+        WHERE user_id = $1
+      `,
+      [userId],
+    );
+
+    await database.query(
+      `
+        INSERT INTO collab_sessions (
+          session_hash,
+          user_id
+        )
+        VALUES ($1, $2)
+      `,
+      [hash, userId],
+    );
+  } else {
+    for (
+      const [
+        existingHash,
+        existingUserId,
+      ] of memorySessions.entries()
+    ) {
+      if (existingUserId === userId) {
+        memorySessions.delete(
+          existingHash,
+        );
+      }
+    }
+
+    memorySessions.set(
+      hash,
+      userId,
+    );
+  }
+
+  return { token, hash };
+}
+
+async function accountBySession(
+  token,
+) {
+  const safeToken =
+    safeText(token, 200);
+
+  if (!safeToken) {
+    return null;
+  }
+
+  const hash =
+    accountSessionHash(
+      safeToken,
+    );
+
+  if (database) {
+    const result =
+      await database.query(
+        `
+          SELECT
+            u.user_id,
+            u.name,
+            u.name_key
+          FROM collab_sessions s
+          JOIN collab_users u
+            ON u.user_id = s.user_id
+          WHERE
+            s.session_hash = $1
+            AND s.last_used_at
+              > NOW() - INTERVAL '90 days'
+          LIMIT 1
+        `,
+        [hash],
+      );
+
+    const row =
+      result.rows[0];
+
+    if (!row) {
+      return null;
+    }
+
+    await database.query(
+      `
+        UPDATE collab_sessions
+        SET last_used_at = NOW()
+        WHERE session_hash = $1
+      `,
+      [hash],
+    );
+
+    return {
+      userId:
+        sanitizeId(row.user_id),
+      name:
+        safeText(row.name, 32),
+      nameKey:
+        normalizeName(row.name_key),
+      sessionHash:
+        hash,
+    };
+  }
+
+  const userId =
+    memorySessions.get(hash);
+  const user =
+    userId
+      ? knownUsers.get(userId)
+      : null;
+
+  return user
+    ? {
+        ...user,
+        sessionHash:
+          hash,
+      }
+    : null;
+}
+
+function attachDirectoryAccount(
+  socket,
+  user,
+  sessionHashValue,
+  sessionToken = '',
+) {
+  const oldSocket =
+    onlineDirectorySockets.get(
+      user.userId,
+    );
+
+  if (
+    oldSocket
+      && oldSocket !== socket
+  ) {
+    send(
+      oldSocket,
+      {
+        type: 'error',
+        code:
+          'signed_in_elsewhere',
+        message:
+          '这个账号已在另一台设备登录。',
+      },
+    );
+
+    oldSocket.directoryUserId =
+      '';
+    oldSocket.close(
+      4001,
+      'signed in elsewhere',
+    );
+  }
+
+  socket.directoryUserId =
+    user.userId;
+  socket.sessionHash =
+    sessionHashValue;
+  socket.friendIds =
+    new Set(
+      friendships.get(
+        user.userId,
+      )
+        ?? [],
+    );
+
+  knownUsers.set(
+    user.userId,
+    {
+      userId:
+        user.userId,
+      name:
+        user.name,
+      nameKey:
+        user.nameKey,
+      lastSeen:
+        Date.now(),
+    },
+  );
+  userIdByName.set(
+    user.nameKey,
+    user.userId,
+  );
+  onlineDirectorySockets.set(
+    user.userId,
+    socket,
+  );
+
+  send(
+    socket,
+    {
+      type: 'auth-ok',
+      userId:
+        user.userId,
+      name:
+        user.name,
+      ...(
+        sessionToken
+          ? { sessionToken }
+          : {}
+      ),
+    },
+  );
+
+  sendDirectoryState(socket);
+  deliverPendingRequests(
+    socket,
+    user.nameKey,
+  );
+  broadcastDirectoryStates();
+}
+
+async function handleAccountRegister(
+  socket,
+  message,
+) {
+  const name =
+    safeText(message.name, 32);
+  const nameKey =
+    normalizeName(name);
+  const password =
+    passwordValue(
+      message.password,
+    );
+  const legacyUserId =
+    sanitizeId(
+      message.legacyUserId,
+    );
+
+  if (nameKey.length < 2) {
+    reject(
+      socket,
+      'invalid_identity',
+      '用户名至少需要 2 个字符。',
+    );
+    return;
+  }
+
+  if (password.length < 8) {
+    reject(
+      socket,
+      'weak_password',
+      '密码至少需要 8 个字符。',
+    );
+    return;
+  }
+
+  const salt =
+    randomBytes(16)
+      .toString('hex');
+  const passwordHash =
+    await derivePasswordHash(
+      password,
+      salt,
+    );
+
+  let userId = '';
+
+  try {
+    if (database) {
+      const existingResult =
+        await database.query(
+          `
+            SELECT
+              user_id,
+              password_salt,
+              password_hash
+            FROM collab_users
+            WHERE name_key = $1
+            LIMIT 1
+          `,
+          [nameKey],
+        );
+
+      const existing =
+        existingResult.rows[0];
+
+      if (existing) {
+        const existingUserId =
+          sanitizeId(
+            existing.user_id,
+          );
+
+        if (
+          existing.password_hash
+            || existing.password_salt
+        ) {
+          reject(
+            socket,
+            'name_taken',
+            '这个用户名已经注册，请直接登录。',
+          );
+          return;
+        }
+
+        if (
+          !legacyUserId
+            || existingUserId
+              !== legacyUserId
+        ) {
+          reject(
+            socket,
+            'legacy_claim_required',
+            '这是旧版身份，请先在原设备上为它设置密码。',
+          );
+          return;
+        }
+
+        userId =
+          existingUserId;
+
+        await database.query(
+          `
+            UPDATE collab_users
+            SET
+              name = $2,
+              password_salt = $3,
+              password_hash = $4,
+              last_seen = NOW(),
+              updated_at = NOW()
+            WHERE user_id = $1
+          `,
+          [
+            userId,
+            name,
+            salt,
+            passwordHash,
+          ],
+        );
+      } else {
+        userId =
+          randomUUID();
+
+        await database.query(
+          `
+            INSERT INTO collab_users (
+              user_id,
+              name,
+              name_key,
+              password_salt,
+              password_hash,
+              last_seen,
+              updated_at
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, NOW(), NOW()
+            )
+          `,
+          [
+            userId,
+            name,
+            nameKey,
+            salt,
+            passwordHash,
+          ],
+        );
+      }
+    } else {
+      const existingUserId =
+        userIdByName.get(nameKey);
+
+      if (existingUserId) {
+        const secret =
+          memoryAccountSecrets.get(
+            existingUserId,
+          );
+
+        if (secret) {
+          reject(
+            socket,
+            'name_taken',
+            '这个用户名已经注册，请直接登录。',
+          );
+          return;
+        }
+
+        if (
+          !legacyUserId
+            || existingUserId
+              !== legacyUserId
+        ) {
+          reject(
+            socket,
+            'legacy_claim_required',
+            '这是旧版身份，请先在原设备上为它设置密码。',
+          );
+          return;
+        }
+
+        userId =
+          existingUserId;
+      } else {
+        userId =
+          randomUUID();
+      }
+
+      memoryAccountSecrets.set(
+        userId,
+        {
+          salt,
+          passwordHash,
+        },
+      );
+    }
+  } catch (error) {
+    if (error?.code === '23505') {
+      reject(
+        socket,
+        'name_taken',
+        '这个用户名已经注册，请直接登录。',
+      );
+      return;
+    }
+
+    console.error(
+      '[account] registration failed',
+      error,
+    );
+    reject(
+      socket,
+      'account_error',
+      '账号注册暂时失败，请稍后再试。',
+    );
+    return;
+  }
+
+  const user = {
+    userId,
+    name,
+    nameKey,
+    lastSeen:
+      Date.now(),
+  };
+
+  knownUsers.set(
+    userId,
+    user,
+  );
+  userIdByName.set(
+    nameKey,
+    userId,
+  );
+
+  const session =
+    await createAccountSession(
+      userId,
+    );
+
+  attachDirectoryAccount(
+    socket,
+    user,
+    session.hash,
+    session.token,
+  );
+}
+
+async function handleAccountLogin(
+  socket,
+  message,
+) {
+  const name =
+    safeText(message.name, 32);
+  const nameKey =
+    normalizeName(name);
+  const password =
+    passwordValue(
+      message.password,
+    );
+
+  if (
+    nameKey.length < 2
+      || password.length < 8
+  ) {
+    reject(
+      socket,
+      'invalid_credentials',
+      '用户名或密码不正确。',
+    );
+    return;
+  }
+
+  let user = null;
+  let salt = '';
+  let expectedHash = '';
+
+  try {
+    if (database) {
+      const result =
+        await database.query(
+          `
+            SELECT
+              user_id,
+              name,
+              name_key,
+              password_salt,
+              password_hash
+            FROM collab_users
+            WHERE name_key = $1
+            LIMIT 1
+          `,
+          [nameKey],
+        );
+
+      const row =
+        result.rows[0];
+
+      if (row) {
+        user = {
+          userId:
+            sanitizeId(row.user_id),
+          name:
+            safeText(row.name, 32),
+          nameKey:
+            normalizeName(row.name_key),
+          lastSeen:
+            Date.now(),
+        };
+        salt =
+          safeText(
+            row.password_salt,
+            200,
+          );
+        expectedHash =
+          safeText(
+            row.password_hash,
+            256,
+          );
+      }
+    } else {
+      const userId =
+        userIdByName.get(nameKey);
+      user =
+        userId
+          ? knownUsers.get(userId)
+            ?? null
+          : null;
+      const secret =
+        userId
+          ? memoryAccountSecrets.get(
+              userId,
+            )
+          : null;
+      salt =
+        secret?.salt
+          ?? '';
+      expectedHash =
+        secret?.passwordHash
+          ?? '';
+    }
+
+    if (
+      user
+        && !expectedHash
+    ) {
+      reject(
+        socket,
+        'account_setup_required',
+        '这是旧版身份，请在最初使用它的设备点击注册，为它设置密码。',
+      );
+      return;
+    }
+
+    const valid =
+      user
+        ? await passwordMatches(
+            password,
+            salt,
+            expectedHash,
+          )
+        : false;
+
+    if (!user || !valid) {
+      reject(
+        socket,
+        'invalid_credentials',
+        '用户名或密码不正确。',
+      );
+      return;
+    }
+
+    if (database) {
+      await database.query(
+        `
+          UPDATE collab_users
+          SET last_seen = NOW()
+          WHERE user_id = $1
+        `,
+        [user.userId],
+      );
+    }
+
+    const session =
+      await createAccountSession(
+        user.userId,
+      );
+
+    attachDirectoryAccount(
+      socket,
+      user,
+      session.hash,
+      session.token,
+    );
+  } catch (error) {
+    console.error(
+      '[account] login failed',
+      error,
+    );
+    reject(
+      socket,
+      'account_error',
+      '账号登录暂时失败，请稍后再试。',
+    );
+  }
+}
+
+async function handleAccountSession(
+  socket,
+  message,
+) {
+  try {
+    const user =
+      await accountBySession(
+        message.sessionToken,
+      );
+
+    if (!user) {
+      reject(
+        socket,
+        'invalid_session',
+        '登录状态已失效，请重新登录。',
+      );
+      return;
+    }
+
+    attachDirectoryAccount(
+      socket,
+      user,
+      user.sessionHash,
+    );
+  } catch (error) {
+    console.error(
+      '[account] session restore failed',
+      error,
+    );
+    reject(
+      socket,
+      'account_error',
+      '恢复登录状态失败，请重新登录。',
+    );
+  }
+}
+
+async function handleAccountLogout(
+  socket,
+) {
+  const sessionHashValue =
+    socket.sessionHash;
+
+  try {
+    if (sessionHashValue) {
+      if (database) {
+        await database.query(
+          `
+            DELETE FROM collab_sessions
+            WHERE session_hash = $1
+          `,
+          [sessionHashValue],
+        );
+      } else {
+        memorySessions.delete(
+          sessionHashValue,
+        );
+      }
+    }
+  } catch (error) {
+    console.error(
+      '[account] logout cleanup failed',
+      error,
+    );
+  }
+
+  socket.sessionHash = '';
+  leaveDirectory(socket);
 }
 
 function safeText(
@@ -911,194 +1714,12 @@ function deliverPendingRequests(
 
 async function handleDirectoryRegister(
   socket,
-  message,
 ) {
-  const userId =
-    sanitizeId(
-      message.userId,
-    );
-
-  const name =
-    safeText(
-      message.name,
-      32,
-    );
-
-  const nameKey =
-    normalizeName(name);
-
-  if (
-    !userId
-      || nameKey.length < 2
-  ) {
-    reject(
-      socket,
-      'invalid_identity',
-      '用户名至少需要 2 个字符。',
-    );
-    return;
-  }
-
-  const claimedBy =
-    userIdByName.get(
-      nameKey,
-    );
-
-  if (
-    claimedBy
-      && claimedBy !== userId
-  ) {
-    reject(
-      socket,
-      'name_taken',
-      '这个用户名已经被其他用户使用，请换一个用户名。',
-    );
-    return;
-  }
-
-  try {
-    await persistUser({
-      userId,
-      name,
-      nameKey,
-    });
-  } catch (error) {
-    if (
-      error
-        && typeof error
-          === 'object'
-        && error.code
-          === '23505'
-    ) {
-      reject(
-        socket,
-        'name_taken',
-        '这个用户名已经被其他用户使用，请换一个用户名。',
-      );
-      return;
-    }
-
-    console.error(
-      '[persistence] failed to save user',
-      error,
-    );
-
-    reject(
-      socket,
-      'persistence_error',
-      '好友资料暂时无法保存，请稍后再试。',
-    );
-    return;
-  }
-
-  const previous =
-    knownUsers.get(userId);
-
-  if (
-    previous?.nameKey
-      && previous.nameKey
-        !== nameKey
-      && userIdByName.get(
-        previous.nameKey,
-      ) === userId
-  ) {
-    userIdByName.delete(
-      previous.nameKey,
-    );
-  }
-
-  const oldSocket =
-    onlineDirectorySockets.get(
-      userId,
-    );
-
-  if (
-    oldSocket
-      && oldSocket !== socket
-  ) {
-    oldSocket.directoryUserId =
-      '';
-  }
-
-  socket.directoryUserId =
-    userId;
-
-  socket.friendIds =
-    new Set(
-      sanitizeIdList(
-        message.friendIds,
-      ),
-    );
-
-  knownUsers.set(
-    userId,
-    {
-      userId,
-      name,
-      nameKey,
-      lastSeen:
-        Date.now(),
-    },
-  );
-
-  userIdByName.set(
-    nameKey,
-    userId,
-  );
-
-  onlineDirectorySockets.set(
-    userId,
+  reject(
     socket,
+    'account_required',
+    '请使用账号登录。',
   );
-
-  for (
-    const friendId
-      of socket.friendIds
-  ) {
-    if (
-      !knownUsers.has(
-        friendId,
-      )
-    ) {
-      continue;
-    }
-
-    try {
-      await persistFriendship(
-        userId,
-        friendId,
-      );
-    } catch (error) {
-      console.error(
-        '[persistence] failed to migrate friendship',
-        error,
-      );
-      continue;
-    }
-
-    addFriendship(
-      userId,
-      friendId,
-    );
-  }
-
-  const persistedFriends =
-    friendships.get(userId)
-      ?? [];
-
-  socket.friendIds =
-    new Set([
-      ...socket.friendIds,
-      ...persistedFriends,
-    ]);
-
-  sendDirectoryState(socket);
-  deliverPendingRequests(
-    socket,
-    nameKey,
-  );
-
-  broadcastDirectoryStates();
 }
 
 async function handleFriendSync(
@@ -2369,6 +2990,8 @@ server.on(
       '';
     socket.directoryUserId =
       '';
+    socket.sessionHash =
+      '';
     socket.friendIds =
       new Set();
 
@@ -2422,6 +3045,49 @@ server.on(
             socket,
             0,
             `客户端没有完成协议握手。服务器要求协议 v${PROTOCOL_VERSION}。`,
+          );
+          return;
+        }
+
+        if (
+          message.type
+            === 'account-register'
+        ) {
+          void handleAccountRegister(
+            socket,
+            message,
+          );
+          return;
+        }
+
+        if (
+          message.type
+            === 'account-login'
+        ) {
+          void handleAccountLogin(
+            socket,
+            message,
+          );
+          return;
+        }
+
+        if (
+          message.type
+            === 'account-session'
+        ) {
+          void handleAccountSession(
+            socket,
+            message,
+          );
+          return;
+        }
+
+        if (
+          message.type
+            === 'account-logout'
+        ) {
+          void handleAccountLogout(
+            socket,
           );
           return;
         }
