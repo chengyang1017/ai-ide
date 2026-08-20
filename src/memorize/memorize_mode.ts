@@ -5,6 +5,26 @@ import type {
 import { compareMemorizeCode } from './memorize_compare';
 import './memorize.css';
 
+type MemorizeShareState =
+  | 'editing'
+  | 'correct'
+  | 'incorrect';
+
+interface MemorizeShareDetail {
+  active: boolean;
+  sessionId: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+  state: MemorizeShareState;
+}
+
+interface CollabRoomStatusDetail {
+  active: boolean;
+}
+
+// V28.1 shared memorize
 function requireElement<T extends Element>(
   root: ParentNode,
   selector: string,
@@ -92,6 +112,24 @@ export function installMemorizeMode(
     <footer class="memorize-actions">
       <button
         type="button"
+        class="memorize-share"
+        data-memorize-share
+        disabled
+      >
+        👥 开始共享
+      </button>
+      <span
+        class="memorize-share-status"
+        data-memorize-share-status
+      >
+        加入好友协作后可共享
+      </span>
+      <span
+        class="memorize-actions-spacer"
+        aria-hidden="true"
+      ></span>
+      <button
+        type="button"
         class="memorize-secondary"
         data-memorize-answer-toggle
       >
@@ -149,9 +187,26 @@ export function installMemorizeMode(
       '[data-memorize-close]',
     );
 
+  const shareButton =
+    requireElement<HTMLButtonElement>(
+      overlay,
+      '[data-memorize-share]',
+    );
+  const shareStatus =
+    requireElement<HTMLElement>(
+      overlay,
+      '[data-memorize-share-status]',
+    );
+
   let latestSelection: SelectedCode | null = null;
   let activeSelection: SelectedCode | null = null;
   let answerVisible = false;
+  let collabActive = false;
+  let shareEnabled = false;
+  let shareSessionId = '';
+  let shareState: MemorizeShareState =
+    'editing';
+  let shareTimer = 0;
 
   const hideEntryButton = (): void => {
     entryButton.hidden = true;
@@ -240,9 +295,120 @@ export function installMemorizeMode(
         : '查看答案';
   };
 
+  const updateShareUi = (): void => {
+    shareButton.disabled =
+      !collabActive;
+
+    if (shareEnabled) {
+      shareButton.textContent =
+        '👥 停止共享';
+      shareButton.dataset.active =
+        'true';
+      shareStatus.textContent =
+        '共享中 · 好友正在实时看到你的输入';
+      return;
+    }
+
+    shareButton.textContent =
+      '👥 开始共享';
+    shareButton.dataset.active =
+      'false';
+    shareStatus.textContent =
+      collabActive
+        ? '未共享 · 点击后好友才能看到'
+        : '加入好友协作后可共享';
+  };
+
+  const emitShareState = (
+    active: boolean,
+  ): void => {
+    if (
+      !activeSelection
+        || !shareSessionId
+    ) {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent<MemorizeShareDetail>(
+        'ai-ide-memorize-share',
+        {
+          detail: {
+            active,
+            sessionId:
+              shareSessionId,
+            filePath:
+              activeSelection.filePath,
+            startLine:
+              activeSelection.startLine,
+            endLine:
+              activeSelection.endLine,
+            text:
+              input.value,
+            state:
+              shareState,
+          },
+        },
+      ),
+    );
+  };
+
+  const flushShare = (): void => {
+    if (shareTimer) {
+      window.clearTimeout(
+        shareTimer,
+      );
+      shareTimer = 0;
+    }
+
+    if (shareEnabled) {
+      emitShareState(true);
+    }
+  };
+
+  const scheduleShare = (): void => {
+    if (
+      !shareEnabled
+        || shareTimer
+    ) {
+      return;
+    }
+
+    shareTimer =
+      window.setTimeout(
+        () => {
+          shareTimer = 0;
+          flushShare();
+        },
+        90,
+      );
+  };
+
+  const stopShare = (): void => {
+    if (shareTimer) {
+      window.clearTimeout(
+        shareTimer,
+      );
+      shareTimer = 0;
+    }
+
+    if (shareEnabled) {
+      emitShareState(false);
+    }
+
+    shareEnabled = false;
+    updateShareUi();
+  };
+
   const openMemorize = (selection: SelectedCode): void => {
+    stopShare();
     activeSelection = { ...selection };
     latestSelection = { ...selection };
+    shareSessionId =
+      crypto.randomUUID();
+    shareState = 'editing';
+    shareEnabled = false;
+    updateShareUi();
     hideEntryButton();
 
     const lineCount =
@@ -268,9 +434,11 @@ export function installMemorizeMode(
   };
 
   const closeMemorize = (): void => {
+    stopShare();
     overlay.hidden = true;
     editorStage.classList.remove('memorize-active');
     activeSelection = null;
+    shareSessionId = '';
     input.value = '';
     answerCode.textContent = '';
     resetResult();
@@ -306,12 +474,16 @@ export function installMemorizeMode(
     if (comparison.correct) {
       result.textContent = '✅ 完全正确';
       result.dataset.state = 'correct';
+      shareState = 'correct';
+      flushShare();
       return;
     }
 
     result.textContent =
       '❌ 还不正确。继续修改后可以再次检查。';
     result.dataset.state = 'incorrect';
+    shareState = 'incorrect';
+    flushShare();
   };
 
   entryButton.addEventListener(
@@ -331,6 +503,43 @@ export function installMemorizeMode(
   );
 
   checkButton.addEventListener('click', checkAnswer);
+
+  shareButton.addEventListener(
+    'click',
+    () => {
+      if (
+        !collabActive
+          || !activeSelection
+      ) {
+        return;
+      }
+
+      if (shareEnabled) {
+        stopShare();
+        return;
+      }
+
+      shareEnabled = true;
+      shareState = 'editing';
+      updateShareUi();
+      flushShare();
+    },
+  );
+
+  input.addEventListener(
+    'input',
+    () => {
+      if (
+        shareState
+          !== 'editing'
+      ) {
+        shareState = 'editing';
+        resetResult();
+      }
+
+      scheduleShare();
+    },
+  );
 
   answerToggle.addEventListener('click', () => {
     if (!activeSelection) {
@@ -368,6 +577,36 @@ export function installMemorizeMode(
     'ai-ide-memorize-selection',
     onExternalSelection,
   );
+
+  const onCollabRoomStatus = (
+    event: Event,
+  ): void => {
+    const detail =
+      (
+        event as CustomEvent<
+          CollabRoomStatusDetail
+        >
+      ).detail;
+
+    collabActive =
+      Boolean(detail?.active);
+
+    if (
+      !collabActive
+        && shareEnabled
+    ) {
+      stopShare();
+    }
+
+    updateShareUi();
+  };
+
+  window.addEventListener(
+    'ai-ide-collab-room-status',
+    onCollabRoomStatus,
+  );
+
+  updateShareUi();
 
   const selectionDisposable =
     editorController.editor.onDidChangeCursorSelection(
@@ -409,9 +648,21 @@ export function installMemorizeMode(
       onKeyDown,
       true,
     );
+    stopShare();
+
+    if (shareTimer) {
+      window.clearTimeout(
+        shareTimer,
+      );
+    }
+
     window.removeEventListener(
       'ai-ide-memorize-selection',
       onExternalSelection,
+    );
+    window.removeEventListener(
+      'ai-ide-collab-room-status',
+      onCollabRoomStatus,
     );
     entryButton.remove();
     overlay.remove();

@@ -11,6 +11,21 @@ import {
 } from './collab_remote_project';
 import './reader_collab.css';
 
+type SharedMemorizeState =
+  | 'editing'
+  | 'correct'
+  | 'incorrect';
+
+interface SharedMemorizeDetail {
+  active: boolean;
+  sessionId: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+  state: SharedMemorizeState;
+}
+
 interface ReaderPeer {
   peerId: string;
   name: string;
@@ -20,8 +35,11 @@ interface ReaderPeer {
   centerLine: number;
   focus?: ReaderFocusDetail | null;
   selection?: ReaderSelectionDetail | null;
+  memorize?: SharedMemorizeDetail | null;
   updatedAt: number;
 }
+
+// V28.1 shared memorize
 
 interface CollabProjectSnapshot {
   projectName: string;
@@ -226,7 +244,7 @@ function initialCollabServer():
 }
 
 const COLLAB_PROTOCOL_VERSION =
-  26;
+  28;
 
 const PROTOCOL_HANDSHAKE_TIMEOUT_MS =
   1800;
@@ -241,6 +259,7 @@ const COLLAB_CAPABILITIES = [
   'reader-viewport',
   'reader-focus',
   'reader-selection',
+  'shared-memorize',
 ] as const;
 
 function randomId(length: number):
@@ -921,6 +940,21 @@ async function openRoomGitHubRepository(
 function peerLocationLabel(
   peer: ReaderPeer,
 ): string {
+  if (
+    peer.memorize?.active
+  ) {
+    return (
+      `${peer.memorize.filePath}`
+        + ` · 正在默写第 ${peer.memorize.startLine}`
+        + (
+          peer.memorize.endLine
+            === peer.memorize.startLine
+            ? ' 行'
+            : `–${peer.memorize.endLine} 行`
+        )
+    );
+  }
+
   if (peer.selection) {
     const selection =
       peer.selection;
@@ -1160,7 +1194,7 @@ export function installReaderCollab():
         class="reader-collab-status"
         data-room-status
       >
-        好友模式只传输身份、在线状态、邀请、阅读位置、讲解光标和选区坐标；不会把源码正文上传到协作服务器。
+        好友协作默认不会上传源码正文；只有当你在默写页主动点击“开始共享”时，才会临时转发你正在输入的默写文本。原答案不会上传，房间结束后共享状态即清除。
       </p>
     </section>
   `;
@@ -1369,6 +1403,57 @@ export function installReaderCollab():
     inviteNotice.querySelector<HTMLButtonElement>(
       '[data-collab-invite-reject]',
     )!;
+
+
+  const memorizeWatch =
+    document.createElement('aside');
+  memorizeWatch.className =
+    'reader-memorize-watch';
+  memorizeWatch.hidden = true;
+  memorizeWatch.innerHTML = `
+    <header>
+      <div>
+        <strong data-memorize-watch-name></strong>
+        <span data-memorize-watch-range></span>
+      </div>
+      <span
+        class="reader-memorize-watch-state"
+        data-memorize-watch-state
+      ></span>
+    </header>
+    <pre><code data-memorize-watch-code></code></pre>
+    <small>
+      这是对方主动共享的默写输入，不包含原答案。
+    </small>
+  `;
+
+  document.body.append(
+    memorizeWatch,
+  );
+
+  const memorizeWatchName =
+    memorizeWatch
+      .querySelector<HTMLElement>(
+        '[data-memorize-watch-name]',
+      )!;
+
+  const memorizeWatchRange =
+    memorizeWatch
+      .querySelector<HTMLElement>(
+        '[data-memorize-watch-range]',
+      )!;
+
+  const memorizeWatchState =
+    memorizeWatch
+      .querySelector<HTMLElement>(
+        '[data-memorize-watch-state]',
+      )!;
+
+  const memorizeWatchCode =
+    memorizeWatch
+      .querySelector<HTMLElement>(
+        '[data-memorize-watch-code]',
+      )!;
 
   const userId =
     ensureUserId();
@@ -2981,6 +3066,83 @@ export function installReaderCollab():
     );
   };
 
+
+  const renderMemorizeWatch = (
+    nextPeers: ReaderPeer[] = peers,
+  ): void => {
+    const peer =
+      nextPeers
+        .filter(
+          (candidate) =>
+            candidate.peerId
+              !== userId
+              && Boolean(
+                candidate
+                  .memorize
+                  ?.active,
+              ),
+        )
+        .sort(
+          (a, b) =>
+            b.updatedAt
+              - a.updatedAt,
+        )[0];
+
+    if (
+      !peer
+        || !peer.memorize
+    ) {
+      memorizeWatch.hidden = true;
+      memorizeWatchCode.textContent = '';
+      return;
+    }
+
+    const shared =
+      peer.memorize;
+
+    memorizeWatchName.textContent =
+      `✍ ${peer.name} 正在默写`;
+
+    memorizeWatchRange.textContent =
+      shared.startLine
+        === shared.endLine
+        ? `${shared.filePath} · 第 ${shared.startLine} 行`
+        : `${shared.filePath} · 第 ${shared.startLine}–${shared.endLine} 行`;
+
+    memorizeWatchState.dataset.state =
+      shared.state;
+
+    memorizeWatchState.textContent =
+      shared.state === 'correct'
+        ? '✅ 检查正确'
+        : shared.state
+            === 'incorrect'
+          ? '❌ 检查未通过'
+          : '实时输入中';
+
+    memorizeWatchCode.textContent =
+      shared.text.length > 0
+        ? shared.text
+        : '（还没开始输入）';
+
+    memorizeWatch.hidden = false;
+  };
+
+  const emitRoomStatus = (
+    active: boolean,
+  ): void => {
+    window.dispatchEvent(
+      new CustomEvent(
+        'ai-ide-collab-room-status',
+        {
+          detail: {
+            active,
+          },
+        },
+      ),
+    );
+  };
+
   const requestRemoteProjectFile =
     (
       path: string,
@@ -3292,6 +3454,8 @@ export function installReaderCollab():
     pendingNoticePeer =
       null;
     notice.hidden = true;
+    memorizeWatch.hidden = true;
+    emitRoomStatus(false);
     roomProjectSnapshot =
       null;
 
@@ -3452,6 +3616,10 @@ export function installReaderCollab():
         message.peers;
 
       setConnectedUi(true);
+      emitRoomStatus(true);
+      renderMemorizeWatch(
+        message.peers,
+      );
 
       setFeedback(
         '✓ 已进入好友协作',
@@ -3929,6 +4097,8 @@ export function installReaderCollab():
         peers = [];
         clearRemoteReaderState();
         setConnectedUi(false);
+        memorizeWatch.hidden = true;
+        emitRoomStatus(false);
 
         if (protocolFailed) {
           return;
@@ -4382,6 +4552,47 @@ export function installReaderCollab():
     onReaderSelection,
   );
 
+
+  const onMemorizeShare = (
+    event: Event,
+  ): void => {
+    const detail =
+      (
+        event as CustomEvent<
+          SharedMemorizeDetail
+        >
+      ).detail;
+
+    if (
+      !roomCode
+        || !detail
+    ) {
+      return;
+    }
+
+    sendRoom({
+      type: 'memorize',
+      roomCode,
+      peerId: userId,
+      memorize:
+        detail.active
+          ? {
+              ...detail,
+              text:
+                detail.text.slice(
+                  0,
+                  200_000,
+                ),
+            }
+          : null,
+    });
+  };
+
+  window.addEventListener(
+    'ai-ide-memorize-share',
+    onMemorizeShare,
+  );
+
   const onAndroidProjectSnapshot = (
     event: Event,
   ): void => {
@@ -4491,6 +4702,7 @@ export function installReaderCollab():
 
   updateRepositoryLabel();
   setConnectedUi(false);
+  emitRoomStatus(false);
   renderPeers();
   renderFriends();
   renderFriendRequests();
@@ -4539,9 +4751,15 @@ export function installReaderCollab():
       onReaderSelection,
     );
 
+    window.removeEventListener(
+      'ai-ide-memorize-share',
+      onMemorizeShare,
+    );
+
     button.remove();
     notice.remove();
     inviteNotice.remove();
+    memorizeWatch.remove();
     modal.remove();
   };
 }

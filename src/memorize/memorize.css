@@ -197,3 +197,56 @@
     flex: 1;
   }
 }
+
+/* V28.1 shared memorize */
+.memorize-actions-spacer {
+  flex: 1 1 auto;
+}
+
+.memorize-share {
+  border:
+    1px solid
+    rgba(139, 191, 255, 0.36);
+  background:
+    rgba(77, 180, 255, 0.10);
+  color: #dceeff;
+}
+
+.memorize-share[
+  data-active="true"
+] {
+  border-color:
+    rgba(104, 211, 145, 0.48);
+  background:
+    rgba(104, 211, 145, 0.12);
+  color: #dfffea;
+}
+
+.memorize-share:disabled {
+  opacity: 0.46;
+}
+
+.memorize-share-status {
+  align-self: center;
+  max-width: 260px;
+  color: rgba(235, 241, 250, 0.58);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 820px) {
+  .memorize-actions {
+    flex-wrap: wrap;
+  }
+
+  .memorize-actions-spacer {
+    display: none;
+  }
+
+  .memorize-share-status {
+    order: 5;
+    flex: 0 0 100%;
+    max-width: none;
+    text-align: center;
+  }
+}

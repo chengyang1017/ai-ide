@@ -32,7 +32,7 @@ const host =
     ?? '0.0.0.0';
 
 const PROTOCOL_VERSION =
-  26;
+  28;
 
 const PROTOCOL_CAPABILITIES = [
   'account-auth',
@@ -44,6 +44,7 @@ const PROTOCOL_CAPABILITIES = [
   'reader-viewport',
   'reader-focus',
   'reader-selection',
+  'shared-memorize',
 ];
 
 const databaseUrl =
@@ -2240,6 +2241,9 @@ function publicPeer(peer) {
     selection:
       peer.selection
         ?? null,
+    memorize:
+      peer.memorize
+        ?? null,
     updatedAt:
       peer.updatedAt,
   };
@@ -2460,6 +2464,8 @@ function handleJoin(
       focus:
         null,
       selection:
+        null,
+      memorize:
         null,
       updatedAt:
         Date.now(),
@@ -2934,6 +2940,132 @@ function handleSelection(
   );
 }
 
+
+function sanitizeMemorize(value) {
+  if (value === null) {
+    return null;
+  }
+
+  if (
+    !value
+      || typeof value
+        !== 'object'
+      || value.active
+        !== true
+      || typeof value.sessionId
+        !== 'string'
+      || typeof value.filePath
+        !== 'string'
+      || !Number.isInteger(
+        value.startLine,
+      )
+      || !Number.isInteger(
+        value.endLine,
+      )
+      || typeof value.text
+        !== 'string'
+  ) {
+    return undefined;
+  }
+
+  const state =
+    value.state === 'correct'
+      || value.state
+        === 'incorrect'
+      ? value.state
+      : 'editing';
+
+  const sessionId =
+    safeText(
+      value.sessionId,
+      120,
+    );
+
+  const filePath =
+    safeText(
+      value.filePath,
+      1000,
+    );
+
+  const startLine =
+    Math.max(
+      1,
+      value.startLine,
+    );
+
+  const endLine =
+    Math.max(
+      startLine,
+      value.endLine,
+    );
+
+  if (
+    !sessionId
+      || !filePath
+  ) {
+    return undefined;
+  }
+
+  return {
+    active: true,
+    sessionId,
+    filePath,
+    startLine,
+    endLine,
+    text:
+      value.text.slice(
+        0,
+        200_000,
+      ),
+    state,
+  };
+}
+
+function handleMemorize(
+  socket,
+  message,
+) {
+  const room =
+    roomForSocket(
+      socket,
+    );
+
+  if (!room) {
+    return;
+  }
+
+  const peer =
+    room.peers.get(
+      socket,
+    );
+
+  if (!peer) {
+    return;
+  }
+
+  const memorize =
+    sanitizeMemorize(
+      message.memorize,
+    );
+
+  if (
+    memorize === undefined
+  ) {
+    return;
+  }
+
+  peer.memorize =
+    memorize;
+  peer.updatedAt =
+    Date.now();
+
+  broadcastRoom(
+    socket.readerRoomCode,
+  );
+}
+
+// V28.1 shared memorize
+
 function leaveDirectory(socket) {
   const userId =
     socket.directoryUserId;
@@ -3218,6 +3350,17 @@ server.on(
             === 'selection'
         ) {
           handleSelection(
+            socket,
+            message,
+          );
+          return;
+        }
+
+        if (
+          message.type
+            === 'memorize'
+        ) {
+          handleMemorize(
             socket,
             message,
           );
