@@ -56,6 +56,14 @@ declare global {
         directories?: string[];
         lastOpenFile?: string;
       } | null>;
+      openGitHubRepository?(url: string): Promise<{
+        rootPath: string;
+        projectName: string;
+        files: string[];
+        directories?: string[];
+        preferredFile?: string;
+        message?: string;
+      }>;
       restoreProject(): Promise<{
         rootPath: string;
         projectName: string;

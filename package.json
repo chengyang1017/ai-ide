@@ -8,13 +8,16 @@
     "dev": "concurrently -k -s first \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "reader:server": "node server/reader-room-server.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",
-    "monaco-editor": "0.56.0"
+    "monaco-editor": "0.56.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

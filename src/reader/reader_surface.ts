@@ -16,6 +16,32 @@ export interface ReaderViewportDetail {
   centerLine: number;
 }
 
+export interface ReaderFocusDetail {
+  filePath: string;
+  line: number;
+  column: number;
+}
+
+export interface ReaderRemoteFocusDetail {
+  peerId: string;
+  name: string;
+  focus: ReaderFocusDetail;
+}
+
+export interface ReaderSelectionDetail {
+  filePath: string;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+export interface ReaderRemoteSelectionDetail {
+  peerId: string;
+  name: string;
+  selection: ReaderSelectionDetail;
+}
+
 type SurfaceMode = 'reader' | 'editor';
 
 const MODE_STORAGE_KEY =
@@ -63,40 +89,6 @@ function requireElement<T extends Element>(
   }
 
   return element;
-}
-
-function createLineNumbers(
-  lineCount: number,
-): DocumentFragment {
-  const fragment =
-    document.createDocumentFragment();
-
-  for (
-    let line = 1;
-    line <= lineCount;
-    line += 1
-  ) {
-    const number =
-      document.createElement('span');
-    number.textContent =
-      String(line);
-    fragment.append(number);
-  }
-
-  return fragment;
-}
-
-function replaceBreaksWithNewlines(
-  fragment: DocumentFragment,
-): void {
-  for (
-    const br of fragment
-      .querySelectorAll('br')
-  ) {
-    br.replaceWith(
-      document.createTextNode('\n'),
-    );
-  }
 }
 
 function textOffsetWithin(
@@ -271,15 +263,15 @@ export function installReaderSurface(
   surface.innerHTML = `
     <div class="reader-scroll" data-reader-scroll>
       <pre
-        class="reader-line-numbers"
-        data-reader-lines
-        aria-hidden="true"
-      ></pre>
-      <pre
         class="reader-code"
         data-reader-code
       ><code data-reader-code-content></code></pre>
     </div>
+    <div
+      class="reader-focus-layer"
+      data-reader-focus-layer
+      aria-hidden="true"
+    ></div>
   `;
 
   const scroll =
@@ -287,15 +279,16 @@ export function installReaderSurface(
       surface,
       '[data-reader-scroll]',
     );
-  const lineNumbers =
-    requireElement<HTMLElement>(
-      surface,
-      '[data-reader-lines]',
-    );
   const code =
     requireElement<HTMLElement>(
       surface,
       '[data-reader-code-content]',
+    );
+
+  const focusLayer =
+    requireElement<HTMLElement>(
+      surface,
+      '[data-reader-focus-layer]',
     );
 
   const memorizeButton =
@@ -337,6 +330,13 @@ export function installReaderSurface(
   let renderSequence = 0;
   let selectionPayload:
     SelectedCode | null = null;
+  let localFocus:
+    ReaderFocusDetail | null = null;
+  let remoteFocuses:
+    ReaderRemoteFocusDetail[] = [];
+  let remoteSelections:
+    ReaderRemoteSelectionDetail[] = [];
+  let lastSharedSelectionKey = '';
   let viewportFrame = 0;
 
   const setStatus = (
@@ -383,6 +383,329 @@ export function installReaderSurface(
       );
     };
 
+  const sourceLines =
+    (): string[] =>
+      currentContent.split('\n');
+
+  const lineElement = (
+    line: number,
+  ): HTMLElement | null =>
+    code.querySelector<HTMLElement>(
+      `.reader-code-line[data-line-number="${line}"]`,
+    );
+
+  const appendPlainLine = (
+    line: HTMLElement,
+    text: string,
+  ): void => {
+    line.textContent = text;
+  };
+
+  const renderCodeLines =
+    (): void => {
+      const lines =
+        sourceLines();
+
+      const model =
+        editor.getModel();
+
+      const editorDom =
+        editor.getDomNode();
+
+      const themeClasses =
+        [
+          'vs',
+          'vs-dark',
+          'hc-black',
+          'hc-light',
+        ];
+
+      const fragment =
+        document.createDocumentFragment();
+
+      for (
+        let index = 0;
+        index < lines.length;
+        index += 1
+      ) {
+        const row =
+          document.createElement(
+            'span',
+          );
+
+        row.className =
+          'reader-code-line';
+
+        row.dataset.lineNumber =
+          String(index + 1);
+
+        const number =
+          document.createElement(
+            'span',
+          );
+
+        number.className =
+          'reader-line-number';
+
+        number.dataset.lineNumber =
+          String(index + 1);
+
+        number.setAttribute(
+          'aria-hidden',
+          'true',
+        );
+
+        const content =
+          document.createElement(
+            'span',
+          );
+
+        content.className =
+          'reader-line-content monaco-editor';
+
+        for (
+          const themeClass
+            of themeClasses
+        ) {
+          if (
+            editorDom?.classList
+              .contains(
+                themeClass,
+              )
+          ) {
+            content.classList.add(
+              themeClass,
+            );
+          }
+        }
+
+        const sourceLine =
+          lines[index] ?? '';
+
+        let rendered = false;
+
+        if (
+          model
+            && index + 1
+              <= model.getLineCount()
+        ) {
+          try {
+            const html =
+              monaco.editor
+                .colorizeModelLine(
+                  model,
+                  index + 1,
+                  2,
+                );
+
+            const template =
+              document.createElement(
+                'template',
+              );
+
+            template.innerHTML =
+              html;
+
+            if (
+              (
+                template.content
+                  .textContent
+                  ?? ''
+              ) === sourceLine
+            ) {
+              content.append(
+                template.content
+                  .cloneNode(true),
+              );
+
+              rendered = true;
+            }
+          } catch {
+            // Fall back to plain text for this line only.
+          }
+        }
+
+        if (!rendered) {
+          appendPlainLine(
+            content,
+            sourceLine,
+          );
+        }
+
+        row.append(
+          number,
+          content,
+        );
+
+        fragment.append(row);
+      }
+
+      code.replaceChildren(
+        fragment,
+      );
+    };
+
+  const sourceOffsetFromDomPoint = (
+    node: Node,
+    offset: number,
+  ): number | null => {
+    const element =
+      node instanceof Element
+        ? node
+        : node.parentElement;
+
+    const row =
+      element?.closest<HTMLElement>(
+        '.reader-code-line',
+      );
+
+    if (
+      !row
+        || !code.contains(row)
+    ) {
+      return null;
+    }
+
+    const line =
+      Number.parseInt(
+        row.dataset.lineNumber
+          ?? '',
+        10,
+      );
+
+    if (
+      !Number.isFinite(line)
+        || line < 1
+    ) {
+      return null;
+    }
+
+    const content =
+      row.querySelector<HTMLElement>(
+        '.reader-line-content',
+      );
+
+    if (
+      !content
+        || !content.contains(node)
+          && content !== node
+    ) {
+      return null;
+    }
+
+    const columnOffset =
+      textOffsetWithin(
+        content,
+        node,
+        offset,
+      );
+
+    if (columnOffset === null) {
+      return null;
+    }
+
+    const lines =
+      sourceLines();
+
+    let sourceOffset = 0;
+
+    for (
+      let index = 0;
+      index < line - 1;
+      index += 1
+    ) {
+      sourceOffset +=
+        (lines[index]?.length ?? 0)
+          + 1;
+    }
+
+    return (
+      sourceOffset
+        + Math.min(
+          lines[line - 1]
+            ?.length
+              ?? 0,
+          columnOffset,
+        )
+    );
+  };
+
+  const domPointWithinLine = (
+    line: number,
+    columnOffset: number,
+  ): {
+    node: Text;
+    offset: number;
+  } | null => {
+    const row =
+      lineElement(line);
+
+    if (!row) {
+      return null;
+    }
+
+    const content =
+      row.querySelector<HTMLElement>(
+        '.reader-line-content',
+      );
+
+    if (!content) {
+      return null;
+    }
+
+    const walker =
+      document.createTreeWalker(
+        content,
+        NodeFilter.SHOW_TEXT,
+      );
+
+    let remaining =
+      Math.max(
+        0,
+        columnOffset,
+      );
+
+    let node =
+      walker.nextNode();
+
+    while (node) {
+      const textNode =
+        node as Text;
+
+      if (
+        remaining
+          <= textNode.data.length
+      ) {
+        return {
+          node: textNode,
+          offset: remaining,
+        };
+      }
+
+      remaining -=
+        textNode.data.length;
+
+      node =
+        walker.nextNode();
+    }
+
+    if (
+      content.textContent?.length === 0
+    ) {
+      const placeholder =
+        document.createTextNode('');
+
+      content.append(placeholder);
+
+      return {
+        node: placeholder,
+        offset: 0,
+      };
+    }
+
+    return null;
+  };
+
   const renderCurrentFile =
     async (): Promise<void> => {
       const model =
@@ -399,69 +722,563 @@ export function installReaderSurface(
         model?.getLanguageId()
           ?? 'plaintext';
 
-      const lineCount =
-        Math.max(
-          1,
-          currentContent
-            .split('\n')
-            .length,
-        );
-
-      lineNumbers.replaceChildren(
-        createLineNumbers(
-          lineCount,
-        ),
-      );
-
-      try {
-        const html =
-          await monaco.editor.colorize(
-            currentContent,
-            currentLanguage,
-            {
-              tabSize: 2,
-            },
-          );
-
-        if (
-          sequence
-            !== renderSequence
-        ) {
-          return;
-        }
-
-        const template =
-          document.createElement(
-            'template',
-          );
-
-        template.innerHTML =
-          html;
-
-        replaceBreaksWithNewlines(
-          template.content,
-        );
-
-        code.replaceChildren(
-          template.content
-            .cloneNode(true),
-        );
-      } catch {
-        if (
-          sequence
-            !== renderSequence
-        ) {
-          return;
-        }
-
-        code.textContent =
-          currentContent;
+      if (
+        sequence
+          !== renderSequence
+      ) {
+        return;
       }
+
+      renderCodeLines();
 
       syncBackground();
       syncSelection();
+      renderFocusMarkers();
       scheduleViewportEvent();
     };
+
+  const offsetFromLineColumn = (
+    source: string,
+    line: number,
+    column: number,
+  ): number => {
+    const lines =
+      source.split('\n');
+
+    const safeLine =
+      Math.max(
+        1,
+        Math.min(
+          lines.length,
+          line,
+        ),
+      );
+
+    let offset = 0;
+
+    for (
+      let index = 0;
+      index < safeLine - 1;
+      index += 1
+    ) {
+      offset +=
+        lines[index].length + 1;
+    }
+
+    const lineText =
+      lines[safeLine - 1]
+        ?? '';
+
+    return (
+      offset
+        + Math.max(
+          0,
+          Math.min(
+            lineText.length,
+            column - 1,
+          ),
+        )
+    );
+  };
+
+  const domPointFromOffset = (
+    targetOffset: number,
+  ): {
+    node: Text;
+    offset: number;
+  } | null => {
+    const position =
+      positionFromOffset(
+        currentContent,
+        targetOffset,
+      );
+
+    return domPointWithinLine(
+      position.line,
+      position.column - 1,
+    );
+  };
+
+  const rectForFocus = (
+    focus: ReaderFocusDetail,
+  ): DOMRect | null => {
+    if (
+      focus.filePath
+        !== editorController.path
+    ) {
+      return null;
+    }
+
+    const offset =
+      offsetFromLineColumn(
+        currentContent,
+        focus.line,
+        focus.column,
+      );
+
+    const point =
+      domPointFromOffset(offset);
+
+    if (!point) {
+      return null;
+    }
+
+    const range =
+      document.createRange();
+
+    range.setStart(
+      point.node,
+      point.offset,
+    );
+
+    const nextOffset =
+      Math.min(
+        point.node.data.length,
+        point.offset + 1,
+      );
+
+    range.setEnd(
+      point.node,
+      nextOffset,
+    );
+
+    let rect =
+      range.getBoundingClientRect();
+
+    if (
+      rect.width === 0
+        && point.offset > 0
+    ) {
+      range.setStart(
+        point.node,
+        point.offset - 1,
+      );
+      range.setEnd(
+        point.node,
+        point.offset,
+      );
+      rect =
+        range.getBoundingClientRect();
+
+      return new DOMRect(
+        rect.right,
+        rect.top,
+        1,
+        rect.height,
+      );
+    }
+
+    return rect;
+  };
+
+  const rangeForSelection = (
+    selection: ReaderSelectionDetail,
+  ): Range | null => {
+    if (
+      selection.filePath
+        !== editorController.path
+    ) {
+      return null;
+    }
+
+    const startOffset =
+      offsetFromLineColumn(
+        currentContent,
+        selection.startLine,
+        selection.startColumn,
+      );
+
+    const endOffset =
+      offsetFromLineColumn(
+        currentContent,
+        selection.endLine,
+        selection.endColumn,
+      );
+
+    if (endOffset <= startOffset) {
+      return null;
+    }
+
+    const startPoint =
+      domPointFromOffset(
+        startOffset,
+      );
+
+    const endPoint =
+      domPointFromOffset(
+        endOffset,
+      );
+
+    if (
+      !startPoint
+        || !endPoint
+    ) {
+      return null;
+    }
+
+    const range =
+      document.createRange();
+
+    try {
+      range.setStart(
+        startPoint.node,
+        startPoint.offset,
+      );
+      range.setEnd(
+        endPoint.node,
+        endPoint.offset,
+      );
+    } catch {
+      return null;
+    }
+
+    return range;
+  };
+
+  const renderFocusMarkers =
+    (): void => {
+      focusLayer.replaceChildren();
+
+      if (
+        effectiveMode
+          !== 'reader'
+      ) {
+        return;
+      }
+
+      const surfaceRect =
+        surface.getBoundingClientRect();
+
+      for (
+        const remote
+          of remoteSelections
+      ) {
+        const range =
+          rangeForSelection(
+            remote.selection,
+          );
+
+        if (!range) {
+          continue;
+        }
+
+        const rawRects =
+          Array.from(
+            range.getClientRects(),
+          ).filter(
+            (rect) =>
+              rect.width > 0
+                && rect.height > 0,
+          );
+
+        const lineRects:
+          Array<{
+            left: number;
+            right: number;
+            top: number;
+            bottom: number;
+          }> = [];
+
+        for (const rect of rawRects) {
+          const existing =
+            lineRects.find(
+              (line) =>
+                Math.abs(line.top - rect.top) <= 2
+                  && Math.abs(
+                    (line.bottom - line.top)
+                      - rect.height,
+                  ) <= 3,
+            );
+
+          if (existing) {
+            existing.left =
+              Math.min(existing.left, rect.left);
+            existing.right =
+              Math.max(existing.right, rect.right);
+            existing.top =
+              Math.min(existing.top, rect.top);
+            existing.bottom =
+              Math.max(existing.bottom, rect.bottom);
+          } else {
+            lineRects.push({
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+            });
+          }
+        }
+
+        lineRects.sort(
+          (a, b) =>
+            a.top - b.top
+              || a.left - b.left,
+        );
+
+        let labeled = false;
+
+        for (const rect of lineRects) {
+          if (
+            rect.bottom < surfaceRect.top
+              || rect.top > surfaceRect.bottom
+              || rect.right < surfaceRect.left
+              || rect.left > surfaceRect.right
+          ) {
+            continue;
+          }
+
+          const highlight =
+            document.createElement(
+              'div',
+            );
+
+          highlight.className =
+            'reader-shared-selection is-remote';
+
+          highlight.style.left =
+            `${rect.left - surfaceRect.left}px`;
+          highlight.style.top =
+            `${
+              rect.top
+                - surfaceRect.top
+                - 3
+            }px`;
+          highlight.style.width =
+            `${Math.max(1, rect.right - rect.left)}px`;
+          highlight.style.height =
+            `${
+              Math.max(
+                1,
+                rect.bottom
+                  - rect.top
+                  + 6,
+              )
+            }px`;
+
+          if (!labeled) {
+            const label =
+              document.createElement(
+                'span',
+              );
+            label.textContent =
+              remote.name;
+            highlight.append(label);
+            labeled = true;
+          }
+
+          focusLayer.append(highlight);
+        }
+      }
+
+      const peersWithSelection =
+        new Set(
+          remoteSelections.map(
+            (remote) =>
+              remote.peerId,
+          ),
+        );
+
+      const renderOne = (
+        focus: ReaderFocusDetail,
+        name: string,
+        remote: boolean,
+      ): void => {
+        const rect =
+          rectForFocus(focus);
+
+        if (!rect) {
+          return;
+        }
+
+        if (
+          rect.bottom
+            < surfaceRect.top
+          || rect.top
+            > surfaceRect.bottom
+          || rect.right
+            < surfaceRect.left
+          || rect.left
+            > surfaceRect.right
+        ) {
+          return;
+        }
+
+        const marker =
+          document.createElement(
+            'div',
+          );
+
+        marker.className =
+          remote
+            ? 'reader-shared-cursor is-remote'
+            : 'reader-shared-cursor is-local';
+
+        marker.style.left =
+          `${
+            rect.left
+              - surfaceRect.left
+          }px`;
+
+        marker.style.top =
+          `${
+            rect.top
+              - surfaceRect.top
+          }px`;
+
+        marker.style.height =
+          `${
+            Math.max(
+              18,
+              rect.height,
+            )
+          }px`;
+
+        const label =
+          document.createElement(
+            'span',
+          );
+        label.textContent =
+          name;
+
+        marker.append(label);
+        focusLayer.append(marker);
+      };
+
+      if (localFocus) {
+        renderOne(
+          localFocus,
+          '你',
+          false,
+        );
+      }
+
+      for (
+        const remote
+          of remoteFocuses
+      ) {
+        if (
+          peersWithSelection.has(
+            remote.peerId,
+          )
+        ) {
+          continue;
+        }
+
+        renderOne(
+          remote.focus,
+          remote.name,
+          true,
+        );
+      }
+    };
+
+  const focusFromPoint = (
+    clientX: number,
+    clientY: number,
+  ): ReaderFocusDetail | null => {
+    const documentWithCaret =
+      document as Document & {
+        caretPositionFromPoint?: (
+          x: number,
+          y: number,
+        ) => {
+          offsetNode: Node;
+          offset: number;
+        } | null;
+        caretRangeFromPoint?: (
+          x: number,
+          y: number,
+        ) => Range | null;
+      };
+
+    let node: Node | null = null;
+    let offset = 0;
+
+    const position =
+      documentWithCaret
+        .caretPositionFromPoint?.(
+          clientX,
+          clientY,
+        );
+
+    if (position) {
+      node =
+        position.offsetNode;
+      offset =
+        position.offset;
+    } else {
+      const range =
+        documentWithCaret
+          .caretRangeFromPoint?.(
+            clientX,
+            clientY,
+          );
+
+      if (range) {
+        node =
+          range.startContainer;
+        offset =
+          range.startOffset;
+      }
+    }
+
+    if (
+      !node
+        || (
+          node !== code
+            && !code.contains(node)
+        )
+    ) {
+      return null;
+    }
+
+    const textOffset =
+      sourceOffsetFromDomPoint(
+        node,
+        offset,
+      );
+
+    if (textOffset === null) {
+      return null;
+    }
+
+    const positionInSource =
+      positionFromOffset(
+        currentContent,
+        textOffset,
+      );
+
+    return {
+      filePath:
+        editorController.path,
+      line:
+        positionInSource.line,
+      column:
+        positionInSource.column,
+    };
+  };
+
+  const setLocalFocus = (
+    focus: ReaderFocusDetail | null,
+  ): void => {
+    localFocus =
+      focus;
+
+    renderFocusMarkers();
+
+    window.dispatchEvent(
+      new CustomEvent<
+        ReaderFocusDetail | null
+      >(
+        'ai-ide-reader-focus',
+        {
+          detail: focus
+            ? { ...focus }
+            : null,
+        },
+      ),
+    );
+  };
 
   const lineHeight =
     (): number => {
@@ -592,9 +1409,63 @@ export function installReaderSurface(
     scheduleViewportEvent();
   };
 
+  const emitSharedSelection = (
+    payload: SelectedCode | null,
+  ): void => {
+    const detail:
+      ReaderSelectionDetail | null =
+        payload
+          ? {
+              filePath:
+                payload.filePath,
+              startLine:
+                payload.startLine,
+              startColumn:
+                payload.startColumn,
+              endLine:
+                payload.endLine,
+              endColumn:
+                payload.endColumn,
+            }
+          : null;
+
+    const key =
+      detail
+        ? [
+            detail.filePath,
+            detail.startLine,
+            detail.startColumn,
+            detail.endLine,
+            detail.endColumn,
+          ].join(':')
+        : '';
+
+    if (
+      key
+        === lastSharedSelectionKey
+    ) {
+      return;
+    }
+
+    lastSharedSelectionKey =
+      key;
+
+    window.dispatchEvent(
+      new CustomEvent<
+        ReaderSelectionDetail | null
+      >(
+        'ai-ide-reader-selection',
+        {
+          detail,
+        },
+      ),
+    );
+  };
+
   const clearReaderSelection =
     (): void => {
       selectionPayload = null;
+      emitSharedSelection(null);
       memorizeButton.hidden = true;
 
       const selection =
@@ -655,15 +1526,13 @@ export function installReaderSurface(
       }
 
       const startOffset =
-        textOffsetWithin(
-          code,
+        sourceOffsetFromDomPoint(
           range.startContainer,
           range.startOffset,
         );
 
       const endOffset =
-        textOffsetWithin(
-          code,
+        sourceOffsetFromDomPoint(
           range.endContainer,
           range.endOffset,
         );
@@ -809,6 +1678,10 @@ export function installReaderSurface(
     void {
     selectionPayload =
       selectionFromDom();
+
+    emitSharedSelection(
+      selectionPayload,
+    );
 
     if (!selectionPayload) {
       memorizeButton.hidden =
@@ -986,6 +1859,44 @@ export function installReaderSurface(
     },
   );
 
+  const onReaderClick = (
+    event: MouseEvent,
+  ): void => {
+    if (
+      effectiveMode
+        !== 'reader'
+    ) {
+      return;
+    }
+
+    const selection =
+      window.getSelection();
+
+    if (
+      selection
+        && !selection.isCollapsed
+    ) {
+      return;
+    }
+
+    const focus =
+      focusFromPoint(
+        event.clientX,
+        event.clientY,
+      );
+
+    if (!focus) {
+      return;
+    }
+
+    setLocalFocus(focus);
+  };
+
+  code.addEventListener(
+    'click',
+    onReaderClick,
+  );
+
   const onSelectionChange =
     (): void => {
       if (
@@ -1010,10 +1921,56 @@ export function installReaderSurface(
       }
     };
 
+  const onRevealLine = (
+    event: Event,
+  ): void => {
+    const detail =
+      (
+        event as CustomEvent<{
+          line?: number;
+        }>
+      ).detail;
+
+    const line =
+      Math.max(
+        1,
+        Math.floor(
+          detail?.line
+            ?? 1,
+        ),
+      );
+
+    if (
+      effectiveMode
+        !== 'reader'
+    ) {
+      void setMode(
+        'reader',
+        false,
+      ).then(
+        () => {
+          requestAnimationFrame(
+            () => {
+              revealReaderLine(
+                line,
+              );
+            },
+          );
+        },
+      );
+      return;
+    }
+
+    revealReaderLine(
+      line,
+    );
+  };
+
   const modelDisposable =
     editor.onDidChangeModel(
       () => {
         clearReaderSelection();
+        setLocalFocus(null);
 
         if (
           effectiveMode
@@ -1046,16 +2003,68 @@ export function installReaderSurface(
     onMemorizeClosed,
   );
 
+  window.addEventListener(
+    'ai-ide-reader-reveal-line',
+    onRevealLine,
+  );
+
   scroll.addEventListener(
     'scroll',
     () => {
       memorizeButton.hidden =
         true;
+      renderFocusMarkers();
       scheduleViewportEvent();
     },
     {
       passive: true,
     },
+  );
+
+  const onRemoteFocuses = (
+    event: Event,
+  ): void => {
+    const detail =
+      (
+        event as CustomEvent<
+          ReaderRemoteFocusDetail[]
+        >
+      ).detail;
+
+    remoteFocuses =
+      Array.isArray(detail)
+        ? detail
+        : [];
+
+    renderFocusMarkers();
+  };
+
+  window.addEventListener(
+    'ai-ide-reader-remote-focuses',
+    onRemoteFocuses,
+  );
+
+  const onRemoteSelections = (
+    event: Event,
+  ): void => {
+    const detail =
+      (
+        event as CustomEvent<
+          ReaderRemoteSelectionDetail[]
+        >
+      ).detail;
+
+    remoteSelections =
+      Array.isArray(detail)
+        ? detail
+        : [];
+
+    renderFocusMarkers();
+  };
+
+  window.addEventListener(
+    'ai-ide-reader-remote-selections',
+    onRemoteSelections,
   );
 
   const projectRoot =
@@ -1110,6 +2119,26 @@ export function installReaderSurface(
     window.removeEventListener(
       'ai-ide-memorize-closed',
       onMemorizeClosed,
+    );
+
+    window.removeEventListener(
+      'ai-ide-reader-reveal-line',
+      onRevealLine,
+    );
+
+    window.removeEventListener(
+      'ai-ide-reader-remote-focuses',
+      onRemoteFocuses,
+    );
+
+    window.removeEventListener(
+      'ai-ide-reader-remote-selections',
+      onRemoteSelections,
+    );
+
+    code.removeEventListener(
+      'click',
+      onReaderClick,
     );
 
     control.remove();

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Debug builds may connect to a developer machine on the local LAN
+      using ws://. Release builds do not inherit this override.
+    -->
+    <application
+        android:usesCleartextTraffic="true" />
+</manifest>

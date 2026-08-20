@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('tutorIde', {
   openProject: () => ipcRenderer.invoke('project:open'),
   restoreProject: () => ipcRenderer.invoke('project:restore'),
+  openGitHubRepository: (url) => ipcRenderer.invoke('github:open-repository', url),
   readProjectFile: (relativePath) => ipcRenderer.invoke('project:read-file', relativePath),
   readProjectAsset: (relativePath) => ipcRenderer.invoke('project:read-asset', relativePath),
   openExternal: (url) => ipcRenderer.invoke('project:open-external', url),

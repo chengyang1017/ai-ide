@@ -74,26 +74,25 @@
 .reader-scroll {
   position: absolute;
   inset: 0;
-  display: grid;
-  grid-template-columns:
-    max-content minmax(
-      max-content,
-      1fr
-    );
-  align-content: start;
+  display: block;
   overflow: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
 }
 
-.reader-line-numbers,
 .reader-code {
   box-sizing: border-box;
+  min-width: max-content;
   min-height: 100%;
   margin: 0;
-  padding-top: 42px;
-  padding-bottom: 18px;
+  padding:
+    42px
+    48px
+    18px
+    0;
+  white-space: pre;
+  overflow: visible;
   font:
     15px/24px
     "Cascadia Code",
@@ -103,43 +102,72 @@
   tab-size: 2;
 }
 
-.reader-line-numbers {
+.reader-code code {
+  display: block;
+  min-width: max-content;
+  white-space: pre;
+  font: inherit;
+}
+
+.reader-code-line {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  min-width: max-content;
+  min-height: 24px;
+  white-space: pre;
+}
+
+.reader-line-number {
   position: sticky;
   left: 0;
-  z-index: 2;
-  min-width: 58px;
-  padding-right: 13px;
-  padding-left: 8px;
-  border-right:
-    1px solid
-    rgba(255, 255, 255, 0.055);
+  z-index: 6;
+  flex: 0 0 56px;
+  box-sizing: border-box;
+  width: 56px;
+  min-width: 56px;
+  padding-right: 10px;
   background:
     var(
       --reader-surface-bg,
       #111318
     );
-  color: #59606c;
+  box-shadow:
+    8px 0 12px
+    -10px
+    rgba(0, 0, 0, 0.9);
+  color: #626a77;
   text-align: right;
+  font: inherit;
+  font-variant-numeric:
+    tabular-nums;
   user-select: none;
   -webkit-user-select: none;
   pointer-events: none;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
-.reader-line-numbers span {
+.reader-line-number::before {
+  content:
+    attr(data-line-number);
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  pointer-events: none;
+}
+
+.reader-line-content {
   display: block;
-  height: 24px;
-}
-
-.reader-code {
+  flex: 0 0 auto;
   min-width: max-content;
-  padding-right: 48px;
-  padding-left: 14px;
+  padding-left: 12px;
   white-space: pre;
-  overflow: visible;
+  font: inherit;
 }
 
-.reader-code,
-.reader-code * {
+.reader-line-content,
+.reader-line-content * {
   user-select: text !important;
   -webkit-user-select: text !important;
   cursor: text;
@@ -190,18 +218,106 @@
     padding-inline: 8px;
   }
 
-  .reader-line-numbers,
   .reader-code {
+    padding-right: 32px;
     font-size: 14px;
     line-height: 24px;
   }
 
-  .reader-code {
-    padding-right: 32px;
-    padding-left: 11px;
+  .reader-code-line {
+    min-height: 24px;
   }
+}
 
-  .reader-line-numbers {
-    min-width: 52px;
-  }
+.reader-focus-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 24;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.reader-shared-cursor {
+  position: absolute;
+  width: 2px;
+  min-height: 18px;
+  border-radius: 2px;
+  background: currentColor;
+  color: #7fc8ff;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.reader-shared-cursor.is-remote {
+  color: #f0b86e;
+}
+
+.reader-shared-cursor span {
+  position: absolute;
+  left: -3px;
+  bottom: calc(100% + 3px);
+  max-width: 120px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #17202d;
+  color: #f5f8ff;
+  font:
+    600 10px/1.2
+    system-ui,
+    sans-serif;
+  white-space: nowrap;
+  box-shadow:
+    0 3px 10px
+    rgba(0, 0, 0, 0.3);
+}
+
+.reader-shared-selection {
+  position: absolute;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background:
+    rgba(240, 184, 110, 0.18);
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.reader-shared-selection span {
+  position: absolute;
+  left: -1px;
+  bottom: calc(100% + 3px);
+  max-width: 120px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #3b2b1d;
+  color: #fff7e7;
+  font:
+    600 10px/1.2
+    system-ui,
+    sans-serif;
+  white-space: nowrap;
+  box-shadow:
+    0 3px 10px
+    rgba(0, 0, 0, 0.3);
+}
+
+
+html[data-android-app='true']
+.reader-line-number {
+  background: #111318;
+}
+
+
+/*
+  Monaco colorize() returns token spans such as .mtk1/.mtk7.
+  Their theme rules are scoped under .monaco-editor, so each Reader line
+  content acts only as a lightweight theme scope.
+*/
+.reader-line-content.monaco-editor {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: max-content !important;
+  overflow: visible !important;
+  background: transparent !important;
+  color: inherit;
 }

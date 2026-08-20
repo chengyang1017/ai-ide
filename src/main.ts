@@ -6,11 +6,13 @@ import './tablet/tablet_size';
 import './tablet/tablet_bootstrap';
 import './android/android_tutor_ide';
 import './android/github_share_receiver';
+import './desktop/desktop_github_workspace';
 import { CharacterController } from './character/character_controller';
 import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
 import { installMemorizeMode } from './memorize/memorize_mode';
 import { installReaderSurface } from './reader/reader_surface';
+import { installReaderCollab } from './reader/reader_collab';
 import { monaco } from './editor/monaco_setup';
 import { captureCurrentCodeContext } from './editor/current_code_context';
 import { buildRelatedCodeMoves } from './project/project_navigator';
@@ -423,6 +425,7 @@ interface RuntimeMonacoEditor {
 const editorController = new EditorController(editorElement, demoFiles);
 installMemorizeMode(editorController);
 installReaderSurface(editorController);
+installReaderCollab();
 const codeNoteController = new CodeNoteController(
   editorController.editor,
   editorStage,
@@ -695,6 +698,71 @@ window.addEventListener('android-project-snapshot', (event) => {
     }>,
   );
 });
+
+window.addEventListener(
+  'ai-ide-reader-jump-request',
+  (event) => {
+    const detail =
+      (
+        event as CustomEvent<{
+          filePath?: string;
+          line?: number;
+        }>
+      ).detail;
+
+    const filePath =
+      detail?.filePath
+        ?.trim();
+
+    const line =
+      Math.max(
+        1,
+        Math.floor(
+          detail?.line
+            ?? 1,
+        ),
+      );
+
+    if (!filePath) {
+      return;
+    }
+
+    void (async () => {
+      if (
+        filePath
+          !== editorController.path
+      ) {
+        await openRealProjectFile(
+          filePath,
+          false,
+          true,
+        );
+      }
+
+      editorController.reveal(
+        line,
+        1,
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          'ai-ide-reader-reveal-line',
+          {
+            detail: {
+              line,
+            },
+          },
+        ),
+      );
+
+      updateActiveFile();
+      updateFileTreeSelection(true);
+
+      tutorStatus.textContent =
+        `👥 已跳到共享阅读位置 · ${filePath}:${line}`;
+    })();
+  },
+);
 
 openProjectButton.addEventListener('click', async () => {
   stopRelatedTour('准备打开项目');

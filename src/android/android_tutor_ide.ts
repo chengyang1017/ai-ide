@@ -3,6 +3,8 @@ import {
   registerPlugin,
 } from '@capacitor/core';
 
+import './android_app_shell';
+
 interface AndroidProjectResult {
   cancelled: boolean;
   rootPath?: string;

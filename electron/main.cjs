@@ -44,6 +44,7 @@ const IMAGE_MIME_BY_EXTENSION = new Map([
 
 let currentProjectRoot = null;
 let currentProjectFiles = [];
+let currentGitHubProject = null;
 let runtimeOpenAiKey = process.env.OPENAI_API_KEY?.trim() || '';
 let dartLspClient = null;
 const windowsTts = new WindowsTtsBridge();
@@ -139,6 +140,7 @@ ipcMain.handle('project:open', async () => {
   }
 
   const rootPath = path.resolve(result.filePaths[0]);
+  currentGitHubProject = null;
   const project = await loadProjectRoot(rootPath);
   persistentState.lastProjectRoot = rootPath;
   persistentState.lastOpenFile = '';
@@ -147,6 +149,10 @@ ipcMain.handle('project:open', async () => {
 });
 
 ipcMain.handle('project:restore', async () => {
+  if (currentGitHubProject) {
+    return null;
+  }
+
   const rootPath = persistentState.lastProjectRoot;
   if (!rootPath) {
     return null;
@@ -170,6 +176,15 @@ ipcMain.handle('project:restore', async () => {
 
 
 ipcMain.handle('project:watch-file', async (event, relativePath) => {
+  if (currentGitHubProject) {
+    const normalizedPath = normalizeRelativePath(relativePath);
+    if (!currentGitHubProject.files.has(normalizedPath)) {
+      throw new Error('GitHub 文件不存在。');
+    }
+    closeProjectFileWatcher(event.sender.id);
+    return { path: normalizedPath };
+  }
+
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
   }
@@ -226,6 +241,10 @@ ipcMain.handle('project:unwatch-file', (event) => {
 });
 
 ipcMain.handle('project:read-asset', async (_event, relativePath) => {
+  if (currentGitHubProject) {
+    return readGitHubAsset(relativePath);
+  }
+
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
   }
@@ -257,7 +276,15 @@ ipcMain.handle('project:open-external', async (_event, rawUrl) => {
   return true;
 });
 
+ipcMain.handle('github:open-repository', async (_event, rawUrl) => {
+  return openGitHubRepository(rawUrl);
+});
+
 ipcMain.handle('project:read-file', async (_event, relativePath) => {
+  if (currentGitHubProject) {
+    return readGitHubTextFile(relativePath);
+  }
+
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
   }
@@ -289,6 +316,13 @@ ipcMain.handle('project:read-file', async (_event, relativePath) => {
 
 
 ipcMain.handle('project:write-file', async (_event, relativePath, rawContent) => {
+  if (currentGitHubProject) {
+    const normalizedPath = normalizeRelativePath(relativePath);
+    throw new Error(
+      `GitHub 在线仓库是只读模式，不能直接保存 ${normalizedPath}。`,
+    );
+  }
+
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
   }
@@ -1576,6 +1610,334 @@ function closeProjectFileWatcher(senderId) {
   } catch {
     // Ignore watcher cleanup races while windows/projects are closing.
   }
+}
+
+
+const GITHUB_TEXT_FILE_NAMES = new Set([
+  '.editorconfig',
+  '.env',
+  '.gitattributes',
+  '.gitignore',
+  '.npmrc',
+  'dockerfile',
+  'makefile',
+  'license',
+  'readme',
+]);
+
+function parseGitHubRepositoryLocation(rawValue) {
+  const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+  let url;
+
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('请输入有效的 GitHub 链接。');
+  }
+
+  if (
+    url.protocol !== 'https:'
+      || url.hostname.toLowerCase() !== 'github.com'
+  ) {
+    throw new Error('目前只支持 https://github.com/... 链接。');
+  }
+
+  const parts = url.pathname.split('/').filter(Boolean);
+  const owner = parts[0];
+  const rawRepo = parts[1];
+
+  if (!owner || !rawRepo) {
+    throw new Error('GitHub 链接里没有找到 owner/repo。');
+  }
+
+  const repo = rawRepo.replace(/\.git$/i, '');
+  const routeKind = parts[2] ?? '';
+  const routeRef = parts[3] ?? '';
+  const routePath = parts.slice(4).join('/');
+
+  return {
+    owner,
+    repo,
+    repository: `${owner}/${repo}`,
+    routeKind,
+    routeRef,
+    routePath,
+  };
+}
+
+async function githubRequestJson(url) {
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Code-Tutor-IDE',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(
+        'GitHub 仓库或文件无法读取。桌面 V9 当前先支持公开仓库。',
+      );
+    }
+    if (response.status === 403) {
+      throw new Error(
+        'GitHub 暂时拒绝请求，可能触发未登录 API 频率限制，请稍后再试。',
+      );
+    }
+    throw new Error(`GitHub 请求失败 · HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function loadCompleteGitHubTree(repoApi, ref) {
+  const recursive = await githubRequestJson(
+    `${repoApi}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+  );
+
+  if (!recursive.truncated) {
+    return Array.isArray(recursive.tree) ? recursive.tree : [];
+  }
+
+  const root = await githubRequestJson(
+    `${repoApi}/git/trees/${encodeURIComponent(ref)}`,
+  );
+
+  const result = [];
+  const queue = [];
+
+  const collect = (items, prefix) => {
+    for (const item of Array.isArray(items) ? items : []) {
+      const fullPath = prefix ? `${prefix}/${item.path}` : item.path;
+
+      if (item.type === 'tree') {
+        if (item.sha) {
+          queue.push({
+            sha: item.sha,
+            prefix: fullPath,
+          });
+        }
+        continue;
+      }
+
+      result.push({
+        ...item,
+        path: fullPath,
+      });
+    }
+  };
+
+  collect(root.tree, '');
+
+  while (queue.length > 0) {
+    const directory = queue.shift();
+    if (!directory) {
+      continue;
+    }
+
+    const subtree = await githubRequestJson(
+      `${repoApi}/git/trees/${encodeURIComponent(directory.sha)}`,
+    );
+    collect(subtree.tree, directory.prefix);
+  }
+
+  return result;
+}
+
+function isGitHubTextBlob(item) {
+  if (!item || item.type !== 'blob' || typeof item.path !== 'string') {
+    return false;
+  }
+
+  if (typeof item.size === 'number' && item.size > MAX_TEXT_FILE_BYTES) {
+    return false;
+  }
+
+  const name = item.path.split('/').at(-1)?.toLowerCase() ?? '';
+  if (GITHUB_TEXT_FILE_NAMES.has(name)) {
+    return true;
+  }
+
+  const extension = path.extname(name).toLowerCase();
+  return TEXT_EXTENSIONS.has(extension);
+}
+
+function chooseGitHubPreferredFile(files, location) {
+  if (
+    location.routeKind === 'blob'
+      && location.routePath
+      && files.includes(location.routePath)
+  ) {
+    return location.routePath;
+  }
+
+  if (location.routeKind === 'tree' && location.routePath) {
+    const prefix = `${location.routePath.replace(/\/+$/, '')}/`;
+    const inside = files.find((file) => file.startsWith(prefix));
+    if (inside) {
+      return inside;
+    }
+  }
+
+  return (
+    files.find((file) => file === 'lib/main.dart')
+      ?? files.find((file) => /(^|\/)readme\.md$/i.test(file))
+      ?? files[0]
+      ?? ''
+  );
+}
+
+async function openGitHubRepository(rawUrl) {
+  const location = parseGitHubRepositoryLocation(rawUrl);
+  const repoApi =
+    `https://api.github.com/repos/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}`;
+
+  const info = await githubRequestJson(repoApi);
+  const defaultBranch =
+    typeof info.default_branch === 'string' && info.default_branch
+      ? info.default_branch
+      : 'main';
+
+  const ref =
+    (location.routeKind === 'blob' || location.routeKind === 'tree')
+      && location.routeRef
+      ? location.routeRef
+      : defaultBranch;
+
+  const treeItems = await loadCompleteGitHubTree(repoApi, ref);
+  const blobMap = new Map();
+
+  for (const item of treeItems) {
+    if (
+      item?.type === 'blob'
+        && typeof item.path === 'string'
+        && typeof item.sha === 'string'
+    ) {
+      blobMap.set(normalizeRelativePath(item.path), {
+        sha: item.sha,
+        size: typeof item.size === 'number' ? item.size : 0,
+      });
+    }
+  }
+
+  const files = treeItems
+    .filter(isGitHubTextBlob)
+    .map((item) => normalizeRelativePath(item.path));
+
+  if (files.length === 0) {
+    throw new Error('这个 GitHub 仓库没有找到可阅读的文本代码文件。');
+  }
+
+  for (const senderId of projectFileWatchers.keys()) {
+    closeProjectFileWatcher(senderId);
+  }
+
+  dartLspClient?.dispose();
+  dartLspClient = null;
+  currentProjectRoot = null;
+  currentProjectFiles = files;
+  currentGitHubProject = {
+    owner: location.owner,
+    repo: location.repo,
+    repository: location.repository,
+    ref,
+    repoApi,
+    files: new Set(files),
+    blobs: blobMap,
+    textCache: new Map(),
+  };
+
+  return {
+    rootPath: `github://${location.repository}@${ref}`,
+    projectName: `${location.repo} · GitHub`,
+    files,
+    directories: [],
+    preferredFile: chooseGitHubPreferredFile(files, location),
+    message:
+      `✓ GitHub · ${location.repository} · ${ref} · ${files.length} 个代码文件 · 只读`,
+  };
+}
+
+async function readGitHubBlob(relativePath, maximumBytes) {
+  if (!currentGitHubProject) {
+    throw new Error('当前没有 GitHub 在线仓库。');
+  }
+
+  const normalizedPath = normalizeRelativePath(relativePath);
+  const blob = currentGitHubProject.blobs.get(normalizedPath);
+
+  if (!blob) {
+    throw new Error(`GitHub 文件不存在：${normalizedPath}`);
+  }
+
+  if (blob.size > maximumBytes) {
+    throw new Error(`GitHub 文件过大：${normalizedPath}`);
+  }
+
+  const payload = await githubRequestJson(
+    `${currentGitHubProject.repoApi}/git/blobs/${encodeURIComponent(blob.sha)}`,
+  );
+
+  if (payload.encoding !== 'base64' || typeof payload.content !== 'string') {
+    throw new Error(`GitHub 文件内容格式无效：${normalizedPath}`);
+  }
+
+  const bytes = Buffer.from(payload.content.replace(/\s/g, ''), 'base64');
+  if (bytes.length > maximumBytes) {
+    throw new Error(`GitHub 文件过大：${normalizedPath}`);
+  }
+
+  return {
+    normalizedPath,
+    bytes,
+  };
+}
+
+async function readGitHubTextFile(relativePath) {
+  if (!currentGitHubProject) {
+    throw new Error('当前没有 GitHub 在线仓库。');
+  }
+
+  const normalizedPath = normalizeRelativePath(relativePath);
+  if (!currentGitHubProject.files.has(normalizedPath)) {
+    throw new Error(`GitHub 代码文件不存在：${normalizedPath}`);
+  }
+
+  const cached = currentGitHubProject.textCache.get(normalizedPath);
+  if (typeof cached === 'string') {
+    return {
+      path: normalizedPath,
+      content: cached,
+    };
+  }
+
+  const result = await readGitHubBlob(
+    normalizedPath,
+    MAX_TEXT_FILE_BYTES,
+  );
+  const content = result.bytes.toString('utf8');
+  currentGitHubProject.textCache.set(normalizedPath, content);
+
+  return {
+    path: normalizedPath,
+    content,
+  };
+}
+
+async function readGitHubAsset(relativePath) {
+  const normalizedPath = normalizeRelativePath(relativePath);
+  const mimeType = normalizeImageMimeType('', normalizedPath);
+  const result = await readGitHubBlob(
+    normalizedPath,
+    MAX_IMAGE_FILE_BYTES,
+  );
+
+  return {
+    path: normalizedPath,
+    mimeType,
+    dataUrl: `data:${mimeType};base64,${result.bytes.toString('base64')}`,
+  };
 }
 
 async function loadProjectRoot(rootPath) {

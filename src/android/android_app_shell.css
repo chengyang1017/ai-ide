@@ -1,0 +1,445 @@
+/* Android-only app shell. Desktop/Electron is intentionally untouched. */
+
+html[data-android-app='true'],
+html[data-android-app='true'] body,
+html[data-android-app='true'] #app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html[data-android-app='true'] * {
+  scrollbar-width: none !important;
+}
+
+html[data-android-app='true'] *::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+html[data-android-app='true'] .ide-shell {
+  min-height: 100dvh;
+  height: 100dvh;
+  padding-bottom: calc(58px + env(safe-area-inset-bottom));
+}
+
+html[data-android-app='true'] .titlebar {
+  min-height: 50px !important;
+  height: 50px;
+  padding: 0 10px 0 max(10px, env(safe-area-inset-left));
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+
+html[data-android-app='true'] .brand {
+  gap: 8px;
+  min-width: 0;
+}
+
+html[data-android-app='true'] .brand-mark {
+  width: 31px;
+  height: 31px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+html[data-android-app='true'] .brand strong {
+  max-width: none;
+  font-size: 14px;
+}
+
+html[data-android-app='true'] .brand small {
+  display: none !important;
+}
+
+html[data-android-app='true'] .titlebar-right {
+  margin-left: auto;
+  min-width: 0;
+  max-width: 44vw;
+  overflow: hidden !important;
+}
+
+html[data-android-app='true'] .titlebar-right > :not(#tutor-status) {
+  display: none !important;
+}
+
+html[data-android-app='true'] #tutor-status {
+  display: block;
+  overflow: hidden;
+  max-width: 44vw;
+  color: rgba(231,237,247,.68);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-android-app='true'] .commandbar,
+html[data-android-app='true'] .statusbar {
+  display: none !important;
+}
+
+html[data-android-app='true'] .workspace {
+  min-height: 0;
+}
+
+html[data-android-app='true'] .editor-tabbar {
+  min-height: 43px;
+  height: 43px;
+  padding-inline: 5px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+html[data-android-app='true'] .tablet-sidebar-toggle {
+  min-width: 52px;
+  min-height: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255,255,255,.06);
+}
+
+html[data-android-app='true'] .editor-stage,
+html[data-android-app='true'] .reader-surface {
+  min-height: 0;
+}
+
+.android-bottom-nav {
+  position: fixed;
+  z-index: 1450;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-height: calc(58px + env(safe-area-inset-bottom));
+  padding:
+    4px
+    max(4px, env(safe-area-inset-right))
+    max(4px, env(safe-area-inset-bottom))
+    max(4px, env(safe-area-inset-left));
+  border-top: 1px solid rgba(255,255,255,.09);
+  background: rgba(15,18,25,.96);
+  box-shadow: 0 -10px 28px rgba(0,0,0,.28);
+  backdrop-filter: blur(18px);
+}
+
+.android-bottom-nav > button {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 1px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 2px 3px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: rgba(231,237,247,.66);
+}
+
+.android-bottom-nav > button > span {
+  font-size: 17px;
+  line-height: 19px;
+}
+
+.android-bottom-nav > button > small {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 9px;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.android-bottom-nav > button[data-active='true'] {
+  background: rgba(97,111,238,.16);
+  color: #dbe0ff;
+}
+
+.android-action-sheet[hidden] {
+  display: none !important;
+}
+
+.android-action-sheet {
+  position: fixed;
+  z-index: 1800;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+}
+
+.android-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(4,7,12,.52);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.android-sheet-card {
+  position: relative;
+  width: 100%;
+  max-height: min(72dvh, 620px);
+  overflow: auto;
+  padding: 6px 12px calc(16px + env(safe-area-inset-bottom));
+  border: 1px solid rgba(255,255,255,.10);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  background: #171b24;
+  box-shadow: 0 -24px 64px rgba(0,0,0,.45);
+  transform: translateY(22px);
+  opacity: .7;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.android-action-sheet.is-open .android-sheet-backdrop {
+  opacity: 1;
+}
+
+.android-action-sheet.is-open .android-sheet-card {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.android-sheet-handle {
+  width: 38px;
+  height: 4px;
+  margin: 2px auto 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.24);
+}
+
+.android-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  margin-bottom: 8px;
+}
+
+.android-sheet-header strong {
+  font-size: 15px;
+}
+
+.android-sheet-header > button {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,.07);
+  font-size: 20px;
+}
+
+.android-sheet-panel[hidden] {
+  display: none !important;
+}
+
+.android-sheet-slot {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.android-sheet-slot > button,
+.android-sheet-slot > select,
+.android-sheet-slot > details {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  margin: 0;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.android-sheet-slot > details {
+  grid-column: 1 / -1;
+}
+
+.android-sheet-slot .toolbar-menu > summary {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+
+.android-sheet-slot .toolbar-menu-panel {
+  position: static !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin-top: 7px;
+  box-shadow: none;
+}
+
+.android-sheet-slot #semantic-ai-mode {
+  grid-column: 1 / -1;
+}
+
+html[data-android-app='true'] .github-share-card {
+  right: 10px !important;
+  bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+  left: 10px !important;
+  width: auto !important;
+  max-width: none !important;
+  border-radius: 18px !important;
+}
+
+html[data-android-app='true'] .reader-collab-dialog,
+html[data-android-app='true'] .github-account-dialog,
+html[data-android-app='true'] .api-key-dialog,
+html[data-android-app='true'] .settings-dialog {
+  max-height: 88dvh !important;
+  border-radius: 20px !important;
+}
+
+@media (orientation: landscape) {
+  .android-bottom-nav {
+    width: min(560px, 72vw);
+    right: 50%;
+    left: auto;
+    border: 1px solid rgba(255,255,255,.09);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    transform: translateX(50%);
+  }
+
+  html[data-android-app='true'] .ide-shell {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+  }
+
+  .android-sheet-card {
+    width: min(720px, 92vw);
+    margin-inline: auto;
+  }
+}
+
+
+/* Native-app overlays must sit above the Android bottom sheet. */
+html[data-android-app='true']
+.github-account-modal,
+html[data-android-app='true']
+.reader-collab-modal,
+html[data-android-app='true']
+.modal-backdrop,
+html[data-android-app='true']
+.desktop-github-modal {
+  z-index: 2100 !important;
+}
+
+html[data-android-app='true']
+.github-share-card {
+  z-index: 2050 !important;
+}
+
+
+/* A real modal owns the screen; never leave the Android action sheet above it. */
+html[data-android-app='true']:has(.github-account-modal:not([hidden]))
+.android-action-sheet,
+html[data-android-app='true']:has(.reader-collab-modal:not([hidden]))
+.android-action-sheet,
+html[data-android-app='true']:has(#appearance-modal:not([hidden]))
+.android-action-sheet,
+html[data-android-app='true']:has(#api-key-modal:not([hidden]))
+.android-action-sheet {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html[data-android-app='true']
+.android-action-sheet[hidden],
+html[data-android-app='true']
+.android-action-sheet:not(.is-open) {
+  pointer-events: none !important;
+}
+
+html[data-android-app='true']
+.android-action-sheet[hidden]
+.android-sheet-backdrop,
+html[data-android-app='true']
+.android-action-sheet:not(.is-open)
+.android-sheet-backdrop {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+
+/*
+  Android owns the visible shell rows.
+  Desktop command/status rows are hidden on Android, so they must not keep
+  any grid track that can squeeze the Reader viewport down to one code line.
+*/
+html[data-android-app='true'] .ide-shell {
+  grid-template-rows:
+    50px
+    minmax(0, 1fr) !important;
+  grid-auto-rows: 0 !important;
+  grid-auto-flow: row !important;
+}
+
+html[data-android-app='true'] .titlebar {
+  grid-row: 1 !important;
+}
+
+html[data-android-app='true'] .workspace {
+  grid-row: 2 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: hidden !important;
+}
+
+html[data-android-app='true'] .editor-pane {
+  display: grid !important;
+  grid-template-rows:
+    43px
+    minmax(0, 1fr) !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+html[data-android-app='true'] .editor-tabbar {
+  grid-row: 1 !important;
+}
+
+html[data-android-app='true'] .editor-stage {
+  grid-row: 2 !important;
+  position: relative !important;
+  align-self: stretch !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: hidden !important;
+}
+
+html[data-android-app='true'] .reader-surface {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+html[data-android-app='true'] .reader-scroll {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: auto !important;
+  touch-action: pan-x pan-y !important;
+}
