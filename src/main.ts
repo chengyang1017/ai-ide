@@ -5,9 +5,11 @@ import './tablet/tablet_ui';
 import './tablet/tablet_size';
 import './tablet/tablet_bootstrap';
 import './android/android_tutor_ide';
+import './android/github_share_receiver';
 import { CharacterController } from './character/character_controller';
 import { demoFiles } from './demo/demo_project';
 import { EditorController } from './editor/editor_controller';
+import { installMemorizeMode } from './memorize/memorize_mode';
 import { monaco } from './editor/monaco_setup';
 import { captureCurrentCodeContext } from './editor/current_code_context';
 import { buildRelatedCodeMoves } from './project/project_navigator';
@@ -418,6 +420,7 @@ interface RuntimeMonacoEditor {
 }
 
 const editorController = new EditorController(editorElement, demoFiles);
+installMemorizeMode(editorController);
 const codeNoteController = new CodeNoteController(
   editorController.editor,
   editorStage,

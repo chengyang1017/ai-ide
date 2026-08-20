@@ -1,0 +1,199 @@
+.memorize-entry {
+  position: absolute;
+  z-index: 950;
+  min-width: 92px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid rgba(139, 191, 255, 0.56);
+  border-radius: 10px;
+  background: rgba(19, 32, 52, 0.96);
+  color: #f7fbff;
+  font: 600 14px/1.2 system-ui, sans-serif;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.memorize-entry[hidden],
+.memorize-overlay[hidden],
+.memorize-answer[hidden] {
+  display: none !important;
+}
+
+.memorize-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: #111318;
+  color: #f4f7fb;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.memorize-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: #171a21;
+}
+
+.memorize-header strong {
+  display: block;
+  font-size: 17px;
+}
+
+.memorize-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  color: rgba(235, 241, 250, 0.68);
+  font-size: 12px;
+}
+
+.memorize-close {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.memorize-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.memorize-instruction {
+  margin: 0 0 12px;
+  color: rgba(235, 241, 250, 0.76);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.memorize-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: min(48vh, 430px);
+  resize: vertical;
+  padding: 16px;
+  border: 1px solid rgba(139, 191, 255, 0.28);
+  border-radius: 12px;
+  outline: none;
+  background: #0c0e14;
+  color: #eef5ff;
+  caret-color: #9fc7ff;
+  font: 15px/1.6 "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+
+.memorize-input:focus {
+  border-color: rgba(139, 191, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(93, 151, 228, 0.16);
+}
+
+.memorize-result {
+  min-height: 24px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.memorize-result[data-state="correct"] {
+  color: #7ee2a8;
+}
+
+.memorize-result[data-state="incorrect"] {
+  color: #ffadad;
+}
+
+.memorize-answer {
+  margin-top: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: #0c0e14;
+  overflow: hidden;
+}
+
+.memorize-answer-title {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(235, 241, 250, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.memorize-answer pre {
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: #eef5ff;
+  font: 14px/1.55 "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  white-space: pre;
+}
+
+.memorize-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: #171a21;
+}
+
+.memorize-actions button {
+  min-height: 42px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-weight: 700;
+  touch-action: manipulation;
+}
+
+.memorize-secondary {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f4f7fb;
+}
+
+.memorize-primary {
+  border: 1px solid rgba(139, 191, 255, 0.5);
+  background: #255f9f;
+  color: white;
+}
+
+@media (max-width: 820px) {
+  .memorize-header {
+    padding: 11px 12px;
+  }
+
+  .memorize-body {
+    padding: 12px;
+  }
+
+  .memorize-input {
+    min-height: 46vh;
+    font-size: 14px;
+  }
+
+  .memorize-actions {
+    padding-inline: 12px;
+  }
+
+  .memorize-actions button {
+    flex: 1;
+  }
+}

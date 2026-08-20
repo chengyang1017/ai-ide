@@ -53,6 +53,8 @@ public class AndroidProjectPlugin extends Plugin {
     private static final String API_KEYSTORE_ALIAS =
         "code_tutor_openai_key_v1";
 
+    private static String pendingGitHubUrl = "";
+
     private static final int MAX_VISIBLE_FILES = 5000;
     private static final int MAX_SCANNED_DOCUMENTS = 12000;
     private static final int MAX_TEXT_BYTES = 2 * 1024 * 1024;
@@ -87,6 +89,29 @@ public class AndroidProjectPlugin extends Plugin {
     private final Map<String, Uri> documentUris = new HashMap<>();
     private final Map<String, Uri> directoryUris = new HashMap<>();
     private Uri currentTreeUri;
+
+    public static synchronized void setPendingGitHubUrl(
+        String url
+    ) {
+        pendingGitHubUrl =
+            url == null
+                ? ""
+                : url.trim();
+    }
+
+    @PluginMethod
+    public void takePendingGitHubUrl(
+        PluginCall call
+    ) {
+        JSObject result = new JSObject();
+
+        synchronized (AndroidProjectPlugin.class) {
+            result.put("url", pendingGitHubUrl);
+            pendingGitHubUrl = "";
+        }
+
+        call.resolve(result);
+    }
 
     @PluginMethod
     public void openProject(PluginCall call) {

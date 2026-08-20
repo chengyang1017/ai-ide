@@ -29,6 +29,15 @@ export interface EditorFile {
   content: string;
 }
 
+export interface SelectedCode {
+  filePath: string;
+  code: string;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
 export class EditorController {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
 
@@ -96,6 +105,29 @@ export class EditorController {
 
   get path(): string {
     return this.currentPath;
+  }
+
+  getSelectedCode(): SelectedCode | null {
+    const model = this.editor.getModel();
+    const selection = this.editor.getSelection();
+
+    if (!model || !selection || selection.isEmpty()) {
+      return null;
+    }
+
+    const code = model.getValueInRange(selection);
+    if (code.trim().length === 0) {
+      return null;
+    }
+
+    return {
+      filePath: this.currentPath,
+      code,
+      startLine: selection.startLineNumber,
+      startColumn: selection.startColumn,
+      endLine: selection.endLineNumber,
+      endColumn: selection.endColumn,
+    };
   }
 
   hasFile(path: string): boolean {
