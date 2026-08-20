@@ -250,3 +250,134 @@
     text-align: center;
   }
 }
+
+/* V28.4 memorize coding toolbar */
+.memorize-coding-tools {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0 10px;
+  padding: 7px 0;
+  background: #111318;
+}
+
+.memorize-live-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 10px;
+  border:
+    1px solid
+    rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  background:
+    rgba(255, 255, 255, 0.05);
+  color: #e8eef8;
+  font-size: 12px;
+  font-weight: 700;
+  touch-action: manipulation;
+}
+
+.memorize-live-toggle input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #4daeff;
+}
+
+.memorize-keybar {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.memorize-key {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 6px 9px;
+  border:
+    1px solid
+    rgba(139, 191, 255, 0.22);
+  border-radius: 8px;
+  background:
+    rgba(139, 191, 255, 0.07);
+  color: #edf5ff;
+  font:
+    700 13px/1
+    "Cascadia Code",
+    "JetBrains Mono",
+    Consolas,
+    monospace;
+  white-space: nowrap;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.memorize-key:active {
+  transform: translateY(1px);
+  background:
+    rgba(139, 191, 255, 0.16);
+}
+
+.memorize-key-tab {
+  min-width: 54px;
+  color: #bfe3ff;
+}
+
+.memorize-live-feedback[hidden] {
+  display: none !important;
+}
+
+.memorize-live-feedback {
+  margin: -2px 0 9px;
+  padding: 8px 10px;
+  border:
+    1px solid
+    rgba(255, 132, 132, 0.34);
+  border-radius: 8px;
+  background:
+    rgba(255, 86, 86, 0.08);
+  color: #ffb7b7;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.memorize-overlay[
+  data-live-mismatch="true"
+] .memorize-input {
+  border-color:
+    rgba(255, 116, 116, 0.60);
+}
+
+@media (max-width: 820px) {
+  .memorize-coding-tools {
+    gap: 7px;
+  }
+
+  .memorize-live-toggle {
+    min-height: 40px;
+    padding-inline: 9px;
+  }
+
+  .memorize-key {
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 14px;
+  }
+
+  .memorize-key-tab {
+    min-width: 58px;
+  }
+}

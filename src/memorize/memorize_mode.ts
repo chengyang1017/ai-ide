@@ -25,6 +25,11 @@ interface CollabRoomStatusDetail {
 }
 
 // V28.1 shared memorize
+
+const LIVE_CORRECTION_STORAGE_KEY =
+  'ai-code-tutor.memorize-live-correction';
+
+// V28.4 memorize coding toolbar
 function requireElement<T extends Element>(
   root: ParentNode,
   selector: string,
@@ -81,6 +86,29 @@ export function installMemorizeMode(
       <p class="memorize-instruction">
         原代码已隐藏。空格、换行和缩进不计错；文字、标识符和符号必须一致。
       </p>
+
+      <div class="memorize-coding-tools">
+        <label class="memorize-live-toggle">
+          <input
+            type="checkbox"
+            data-memorize-live-toggle
+          />
+          <span>实时纠错</span>
+        </label>
+
+        <div
+          class="memorize-keybar"
+          data-memorize-keybar
+          aria-label="代码快捷键"
+        ></div>
+      </div>
+
+      <div
+        class="memorize-live-feedback"
+        data-memorize-live-feedback
+        aria-live="polite"
+        hidden
+      ></div>
 
       <textarea
         class="memorize-input"
@@ -156,6 +184,22 @@ export function installMemorizeMode(
       overlay,
       '[data-memorize-input]',
     );
+
+  const liveToggle =
+    requireElement<HTMLInputElement>(
+      overlay,
+      '[data-memorize-live-toggle]',
+    );
+  const keybar =
+    requireElement<HTMLElement>(
+      overlay,
+      '[data-memorize-keybar]',
+    );
+  const liveFeedback =
+    requireElement<HTMLElement>(
+      overlay,
+      '[data-memorize-live-feedback]',
+    );
   const result =
     requireElement<HTMLElement>(
       overlay,
@@ -207,6 +251,13 @@ export function installMemorizeMode(
   let shareState: MemorizeShareState =
     'editing';
   let shareTimer = 0;
+  let liveCorrectionEnabled =
+    localStorage.getItem(
+      LIVE_CORRECTION_STORAGE_KEY,
+    ) !== 'false';
+
+  liveToggle.checked =
+    liveCorrectionEnabled;
 
   const hideEntryButton = (): void => {
     entryButton.hidden = true;
@@ -285,6 +336,276 @@ export function installMemorizeMode(
     result.textContent = '';
     result.dataset.state = '';
   };
+
+  const clearLiveFeedback = (): void => {
+    liveFeedback.textContent = '';
+    liveFeedback.hidden = true;
+    overlay.dataset.liveMismatch =
+      'false';
+  };
+
+  const updateLiveCorrection = (): void => {
+    if (
+      !liveCorrectionEnabled
+        || !activeSelection
+    ) {
+      clearLiveFeedback();
+      return;
+    }
+
+    const comparison =
+      compareMemorizeCode(
+        activeSelection.code,
+        input.value,
+      );
+
+    const expected =
+      comparison.expectedNormalized;
+    const actual =
+      comparison.actualNormalized;
+
+    let mismatchIndex = -1;
+    const overlap =
+      Math.min(
+        expected.length,
+        actual.length,
+      );
+
+    for (
+      let index = 0;
+      index < overlap;
+      index += 1
+    ) {
+      if (
+        expected[index]
+          !== actual[index]
+      ) {
+        mismatchIndex = index;
+        break;
+      }
+    }
+
+    if (
+      mismatchIndex < 0
+        && actual.length
+          > expected.length
+    ) {
+      mismatchIndex =
+        expected.length;
+    }
+
+    if (mismatchIndex < 0) {
+      clearLiveFeedback();
+      return;
+    }
+
+    liveFeedback.textContent =
+      `⚠ 写错了 · 第 ${mismatchIndex + 1} 个有效字符`;
+    liveFeedback.hidden = false;
+    overlay.dataset.liveMismatch =
+      'true';
+  };
+
+  const notifyProgrammaticInput =
+    (): void => {
+      input.dispatchEvent(
+        new Event(
+          'input',
+          {
+            bubbles: true,
+          },
+        ),
+      );
+    };
+
+  const insertQuickText = (
+    before: string,
+    after = '',
+  ): void => {
+    const start =
+      input.selectionStart
+        ?? input.value.length;
+    const end =
+      input.selectionEnd
+        ?? start;
+    const selected =
+      input.value.slice(
+        start,
+        end,
+      );
+
+    input.setRangeText(
+      `${before}${selected}${after}`,
+      start,
+      end,
+      'end',
+    );
+
+    if (
+      after
+        && selected.length === 0
+    ) {
+      const caret =
+        start + before.length;
+
+      input.setSelectionRange(
+        caret,
+        caret,
+      );
+    }
+
+    input.focus();
+    notifyProgrammaticInput();
+  };
+
+  const insertTab = (): void => {
+    const start =
+      input.selectionStart
+        ?? input.value.length;
+    const end =
+      input.selectionEnd
+        ?? start;
+
+    if (start === end) {
+      insertQuickText('  ');
+      return;
+    }
+
+    const value =
+      input.value;
+    const lineStart =
+      value.lastIndexOf(
+        '\n',
+        Math.max(
+          0,
+          start - 1,
+        ),
+      ) + 1;
+
+    const block =
+      value.slice(
+        lineStart,
+        end,
+      );
+
+    const lineCount =
+      Math.max(
+        1,
+        block.split('\n').length,
+      );
+
+    const indented =
+      block.replace(
+        /^/gm,
+        '  ',
+      );
+
+    input.setRangeText(
+      indented,
+      lineStart,
+      end,
+      'end',
+    );
+
+    input.setSelectionRange(
+      start + 2,
+      end + lineCount * 2,
+    );
+
+    input.focus();
+    notifyProgrammaticInput();
+  };
+
+  const quickKeys: Array<{
+    label: string;
+    before?: string;
+    after?: string;
+    tab?: boolean;
+  }> = [
+    { label: 'Tab', tab: true },
+    { label: '( )', before: '(', after: ')' },
+    { label: '[ ]', before: '[', after: ']' },
+    { label: '{ }', before: '{', after: '}' },
+    { label: '< >', before: '<', after: '>' },
+    { label: "' '", before: "'", after: "'" },
+    { label: '" "', before: '"', after: '"' },
+    { label: '` `', before: '`', after: '`' },
+    { label: '=>', before: '=>' },
+    { label: '=', before: '=' },
+    { label: ';', before: ';' },
+    { label: ':', before: ':' },
+    { label: ',', before: ',' },
+    { label: '.', before: '.' },
+    { label: '?', before: '?' },
+    { label: '!', before: '!' },
+    { label: '+', before: '+' },
+    { label: '-', before: '-' },
+    { label: '*', before: '*' },
+    { label: '/', before: '/' },
+    { label: '\\', before: '\\' },
+    { label: '_', before: '_' },
+    { label: '&', before: '&' },
+    { label: '|', before: '|' },
+    { label: '%', before: '%' },
+    { label: '#', before: '#' },
+    { label: '$', before: '$' },
+    { label: '@', before: '@' },
+  ];
+
+  for (const quickKey of quickKeys) {
+    const quickButton =
+      document.createElement(
+        'button',
+      );
+
+    quickButton.type = 'button';
+    quickButton.className =
+      quickKey.tab
+        ? 'memorize-key memorize-key-tab'
+        : 'memorize-key';
+    quickButton.textContent =
+      quickKey.label;
+
+    quickButton.addEventListener(
+      'pointerdown',
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (quickKey.tab) {
+          insertTab();
+          return;
+        }
+
+        insertQuickText(
+          quickKey.before ?? '',
+          quickKey.after ?? '',
+        );
+      },
+    );
+
+    keybar.append(
+      quickButton,
+    );
+  }
+
+  liveToggle.addEventListener(
+    'change',
+    () => {
+      liveCorrectionEnabled =
+        liveToggle.checked;
+
+      localStorage.setItem(
+        LIVE_CORRECTION_STORAGE_KEY,
+        String(
+          liveCorrectionEnabled,
+        ),
+      );
+
+      updateLiveCorrection();
+      input.focus();
+    },
+  );
 
   const setAnswerVisible = (visible: boolean): void => {
     answerVisible = visible;
@@ -423,6 +744,9 @@ export function installMemorizeMode(
     input.value = '';
     answerCode.textContent = selection.code;
     resetResult();
+    clearLiveFeedback();
+    liveToggle.checked =
+      liveCorrectionEnabled;
     setAnswerVisible(false);
 
     overlay.hidden = false;
@@ -442,6 +766,7 @@ export function installMemorizeMode(
     input.value = '';
     answerCode.textContent = '';
     resetResult();
+    clearLiveFeedback();
     setAnswerVisible(false);
 
     if (
@@ -537,7 +862,23 @@ export function installMemorizeMode(
         resetResult();
       }
 
+      updateLiveCorrection();
       scheduleShare();
+    },
+  );
+
+  input.addEventListener(
+    'keydown',
+    (event) => {
+      if (
+        event.key !== 'Tab'
+          || event.isComposing
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      insertTab();
     },
   );
 
