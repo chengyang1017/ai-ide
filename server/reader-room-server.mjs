@@ -1,7 +1,12 @@
+import pg from 'pg';
 import {
   WebSocket,
   WebSocketServer,
 } from 'ws';
+
+const {
+  Pool,
+} = pg;
 
 const port =
   Number.parseInt(
@@ -27,13 +32,21 @@ const PROTOCOL_CAPABILITIES = [
   'reader-selection',
 ];
 
-const server =
-  new WebSocketServer({
-    host,
-    port,
-    maxPayload:
-      3 * 1024 * 1024,
-  });
+const databaseUrl =
+  process.env.DATABASE_URL
+    ?.trim()
+    ?? '';
+
+const database =
+  databaseUrl
+    ? new Pool({
+        connectionString:
+          databaseUrl,
+        max: 5,
+        idleTimeoutMillis:
+          30_000,
+      })
+    : null;
 
 const rooms =
   new Map();
@@ -52,6 +65,425 @@ const friendships =
 
 const pendingFriendRequests =
   new Map();
+
+function friendshipPair(
+  firstUserId,
+  secondUserId,
+) {
+  return [
+    firstUserId,
+    secondUserId,
+  ].sort();
+}
+
+function rememberPendingRequest(
+  targetNameKey,
+  request,
+) {
+  const queued =
+    pendingFriendRequests
+      .get(targetNameKey)
+      ?? [];
+
+  const filtered =
+    queued.filter(
+      (item) =>
+        item.fromUserId
+          !== request.fromUserId,
+    );
+
+  filtered.push(request);
+
+  pendingFriendRequests.set(
+    targetNameKey,
+    filtered,
+  );
+}
+
+function forgetPendingRequest(
+  targetNameKey,
+  fromUserId,
+) {
+  const queued =
+    pendingFriendRequests
+      .get(targetNameKey)
+      ?? [];
+
+  const next =
+    queued.filter(
+      (item) =>
+        item.fromUserId
+          !== fromUserId,
+    );
+
+  if (next.length === 0) {
+    pendingFriendRequests.delete(
+      targetNameKey,
+    );
+    return;
+  }
+
+  pendingFriendRequests.set(
+    targetNameKey,
+    next,
+  );
+}
+
+async function initializePersistence() {
+  if (!database) {
+    console.warn(
+      '[persistence] DATABASE_URL is not set; friend data uses memory only.',
+    );
+    return;
+  }
+
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS collab_users (
+      user_id TEXT PRIMARY KEY,
+      name VARCHAR(32) NOT NULL,
+      name_key VARCHAR(32) NOT NULL UNIQUE,
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS collab_friendships (
+      user_id_a TEXT NOT NULL
+        REFERENCES collab_users(user_id)
+        ON DELETE CASCADE,
+      user_id_b TEXT NOT NULL
+        REFERENCES collab_users(user_id)
+        ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id_a, user_id_b),
+      CHECK (user_id_a < user_id_b)
+    )
+  `);
+
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS collab_friend_requests (
+      from_user_id TEXT NOT NULL
+        REFERENCES collab_users(user_id)
+        ON DELETE CASCADE,
+      target_name_key VARCHAR(32) NOT NULL,
+      from_name VARCHAR(32) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (from_user_id, target_name_key)
+    )
+  `);
+
+  const usersResult =
+    await database.query(`
+      SELECT
+        user_id,
+        name,
+        name_key,
+        EXTRACT(
+          EPOCH FROM last_seen
+        ) * 1000 AS last_seen_ms
+      FROM collab_users
+    `);
+
+  for (const row of usersResult.rows) {
+    const userId =
+      sanitizeId(
+        row.user_id,
+      );
+
+    const name =
+      safeText(
+        row.name,
+        32,
+      );
+
+    const nameKey =
+      normalizeName(
+        row.name_key,
+      );
+
+    if (
+      !userId
+        || !name
+        || !nameKey
+    ) {
+      continue;
+    }
+
+    knownUsers.set(
+      userId,
+      {
+        userId,
+        name,
+        nameKey,
+        lastSeen:
+          Number(
+            row.last_seen_ms,
+          ) || Date.now(),
+      },
+    );
+
+    userIdByName.set(
+      nameKey,
+      userId,
+    );
+  }
+
+  const friendshipsResult =
+    await database.query(`
+      SELECT
+        user_id_a,
+        user_id_b
+      FROM collab_friendships
+    `);
+
+  for (
+    const row
+      of friendshipsResult.rows
+  ) {
+    const firstUserId =
+      sanitizeId(
+        row.user_id_a,
+      );
+
+    const secondUserId =
+      sanitizeId(
+        row.user_id_b,
+      );
+
+    if (
+      !firstUserId
+        || !secondUserId
+    ) {
+      continue;
+    }
+
+    ensureFriendSet(
+      firstUserId,
+    ).add(
+      secondUserId,
+    );
+
+    ensureFriendSet(
+      secondUserId,
+    ).add(
+      firstUserId,
+    );
+  }
+
+  const requestsResult =
+    await database.query(`
+      SELECT
+        from_user_id,
+        target_name_key,
+        from_name
+      FROM collab_friend_requests
+      ORDER BY created_at ASC
+    `);
+
+  for (
+    const row
+      of requestsResult.rows
+  ) {
+    const fromUserId =
+      sanitizeId(
+        row.from_user_id,
+      );
+
+    const targetNameKey =
+      normalizeName(
+        row.target_name_key,
+      );
+
+    const fromName =
+      safeText(
+        row.from_name,
+        32,
+      );
+
+    if (
+      !fromUserId
+        || !targetNameKey
+        || !fromName
+    ) {
+      continue;
+    }
+
+    rememberPendingRequest(
+      targetNameKey,
+      {
+        fromUserId,
+        fromName,
+      },
+    );
+  }
+
+  console.log(
+    `[persistence] loaded ${knownUsers.size} users, `
+      + `${friendshipsResult.rowCount ?? 0} friendships, `
+      + `${requestsResult.rowCount ?? 0} pending requests.`,
+  );
+}
+
+async function persistUser(
+  user,
+) {
+  if (!database) {
+    return;
+  }
+
+  await database.query(
+    `
+      INSERT INTO collab_users (
+        user_id,
+        name,
+        name_key,
+        last_seen,
+        updated_at
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        name_key = EXCLUDED.name_key,
+        last_seen = NOW(),
+        updated_at = NOW()
+    `,
+    [
+      user.userId,
+      user.name,
+      user.nameKey,
+    ],
+  );
+}
+
+async function persistFriendship(
+  firstUserId,
+  secondUserId,
+) {
+  if (!database) {
+    return;
+  }
+
+  const [
+    userIdA,
+    userIdB,
+  ] =
+    friendshipPair(
+      firstUserId,
+      secondUserId,
+    );
+
+  await database.query(
+    `
+      INSERT INTO collab_friendships (
+        user_id_a,
+        user_id_b
+      )
+      VALUES ($1, $2)
+      ON CONFLICT DO NOTHING
+    `,
+    [
+      userIdA,
+      userIdB,
+    ],
+  );
+}
+
+async function persistFriendRequest(
+  fromUserId,
+  targetNameKey,
+  fromName,
+) {
+  if (!database) {
+    return;
+  }
+
+  await database.query(
+    `
+      INSERT INTO collab_friend_requests (
+        from_user_id,
+        target_name_key,
+        from_name,
+        created_at
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        NOW()
+      )
+      ON CONFLICT (
+        from_user_id,
+        target_name_key
+      )
+      DO UPDATE SET
+        from_name = EXCLUDED.from_name,
+        created_at = NOW()
+    `,
+    [
+      fromUserId,
+      targetNameKey,
+      fromName,
+    ],
+  );
+}
+
+async function deleteFriendRequest(
+  fromUserId,
+  targetNameKey,
+) {
+  if (!database) {
+    return;
+  }
+
+  await database.query(
+    `
+      DELETE FROM collab_friend_requests
+      WHERE
+        from_user_id = $1
+        AND target_name_key = $2
+    `,
+    [
+      fromUserId,
+      targetNameKey,
+    ],
+  );
+}
+
+async function touchPersistedUser(
+  userId,
+) {
+  if (!database) {
+    return;
+  }
+
+  try {
+    await database.query(
+      `
+        UPDATE collab_users
+        SET
+          last_seen = NOW(),
+          updated_at = NOW()
+        WHERE user_id = $1
+      `,
+      [
+        userId,
+      ],
+    );
+  } catch (error) {
+    console.error(
+      '[persistence] failed to update last_seen',
+      error,
+    );
+  }
+}
 
 function safeText(
   value,
@@ -446,14 +878,6 @@ function deliverPendingRequests(
       .get(nameKey)
       ?? [];
 
-  if (pending.length === 0) {
-    return;
-  }
-
-  pendingFriendRequests.delete(
-    nameKey,
-  );
-
   for (const request of pending) {
     if (
       request.fromUserId
@@ -485,7 +909,7 @@ function deliverPendingRequests(
   }
 }
 
-function handleDirectoryRegister(
+async function handleDirectoryRegister(
   socket,
   message,
 ) {
@@ -528,6 +952,41 @@ function handleDirectoryRegister(
       socket,
       'name_taken',
       '这个用户名已经被其他用户使用，请换一个用户名。',
+    );
+    return;
+  }
+
+  try {
+    await persistUser({
+      userId,
+      name,
+      nameKey,
+    });
+  } catch (error) {
+    if (
+      error
+        && typeof error
+          === 'object'
+        && error.code
+          === '23505'
+    ) {
+      reject(
+        socket,
+        'name_taken',
+        '这个用户名已经被其他用户使用，请换一个用户名。',
+      );
+      return;
+    }
+
+    console.error(
+      '[persistence] failed to save user',
+      error,
+    );
+
+    reject(
+      socket,
+      'persistence_error',
+      '好友资料暂时无法保存，请稍后再试。',
     );
     return;
   }
@@ -597,16 +1056,41 @@ function handleDirectoryRegister(
       of socket.friendIds
   ) {
     if (
-      knownUsers.has(
+      !knownUsers.has(
         friendId,
       )
     ) {
-      addFriendship(
+      continue;
+    }
+
+    try {
+      await persistFriendship(
         userId,
         friendId,
       );
+    } catch (error) {
+      console.error(
+        '[persistence] failed to migrate friendship',
+        error,
+      );
+      continue;
     }
+
+    addFriendship(
+      userId,
+      friendId,
+    );
   }
+
+  const persistedFriends =
+    friendships.get(userId)
+      ?? [];
+
+  socket.friendIds =
+    new Set([
+      ...socket.friendIds,
+      ...persistedFriends,
+    ]);
 
   sendDirectoryState(socket);
   deliverPendingRequests(
@@ -617,7 +1101,7 @@ function handleDirectoryRegister(
   broadcastDirectoryStates();
 }
 
-function handleFriendSync(
+async function handleFriendSync(
   socket,
   message,
 ) {
@@ -628,7 +1112,7 @@ function handleFriendSync(
     return;
   }
 
-  socket.friendIds =
+  const incomingFriendIds =
     new Set(
       sanitizeIdList(
         message.friendIds,
@@ -637,25 +1121,49 @@ function handleFriendSync(
 
   for (
     const friendId
-      of socket.friendIds
+      of incomingFriendIds
   ) {
     if (
-      knownUsers.has(
+      !knownUsers.has(
         friendId,
       )
     ) {
-      addFriendship(
+      continue;
+    }
+
+    try {
+      await persistFriendship(
         userId,
         friendId,
       );
+    } catch (error) {
+      console.error(
+        '[persistence] failed to save friendship sync',
+        error,
+      );
+      continue;
     }
+
+    addFriendship(
+      userId,
+      friendId,
+    );
   }
+
+  socket.friendIds =
+    new Set([
+      ...incomingFriendIds,
+      ...(
+        friendships.get(userId)
+          ?? []
+      ),
+    ]);
 
   sendDirectoryState(socket);
   broadcastDirectoryStates();
 }
 
-function handleFriendRequest(
+async function handleFriendRequest(
   socket,
   message,
 ) {
@@ -726,6 +1234,23 @@ function handleFriendRequest(
         targetUserId,
       )
   ) {
+    try {
+      await deleteFriendRequest(
+        fromUserId,
+        targetNameKey,
+      );
+    } catch (error) {
+      console.error(
+        '[persistence] failed to clear stale friend request',
+        error,
+      );
+    }
+
+    forgetPendingRequest(
+      targetNameKey,
+      fromUserId,
+    );
+
     const target =
       publicFriend(
         targetUserId,
@@ -741,6 +1266,35 @@ function handleFriendRequest(
     );
     return;
   }
+
+  try {
+    await persistFriendRequest(
+      fromUserId,
+      targetNameKey,
+      fromUser.name,
+    );
+  } catch (error) {
+    console.error(
+      '[persistence] failed to save friend request',
+      error,
+    );
+
+    reject(
+      socket,
+      'persistence_error',
+      '好友请求暂时无法保存，请稍后再试。',
+    );
+    return;
+  }
+
+  rememberPendingRequest(
+    targetNameKey,
+    {
+      fromUserId,
+      fromName:
+        fromUser.name,
+    },
+  );
 
   const targetSocket =
     targetUserId
@@ -759,42 +1313,7 @@ function handleFriendRequest(
           fromUser.name,
       },
     );
-
-    send(
-      socket,
-      {
-        type:
-          'friend-request-sent',
-        targetName,
-        queued: false,
-      },
-    );
-
-    return;
   }
-
-  const queued =
-    pendingFriendRequests
-      .get(targetNameKey)
-      ?? [];
-
-  const filtered =
-    queued.filter(
-      (request) =>
-        request.fromUserId
-          !== fromUserId,
-    );
-
-  filtered.push({
-    fromUserId,
-    fromName:
-      fromUser.name,
-  });
-
-  pendingFriendRequests.set(
-    targetNameKey,
-    filtered,
-  );
 
   send(
     socket,
@@ -802,12 +1321,13 @@ function handleFriendRequest(
       type:
         'friend-request-sent',
       targetName,
-      queued: true,
+      queued:
+        !targetSocket,
     },
   );
 }
 
-function handleFriendAccept(
+async function handleFriendAccept(
   socket,
   message,
 ) {
@@ -847,6 +1367,35 @@ function handleFriendAccept(
     return;
   }
 
+  try {
+    await persistFriendship(
+      userId,
+      targetUserId,
+    );
+
+    await deleteFriendRequest(
+      targetUserId,
+      current.nameKey,
+    );
+  } catch (error) {
+    console.error(
+      '[persistence] failed to accept friendship',
+      error,
+    );
+
+    reject(
+      socket,
+      'persistence_error',
+      '好友关系暂时无法保存，请稍后再试。',
+    );
+    return;
+  }
+
+  forgetPendingRequest(
+    current.nameKey,
+    targetUserId,
+  );
+
   addFriendship(
     userId,
     targetUserId,
@@ -882,6 +1431,56 @@ function handleFriendAccept(
   }
 
   broadcastDirectoryStates();
+}
+
+async function handleFriendReject(
+  socket,
+  message,
+) {
+  const userId =
+    socket.directoryUserId;
+
+  const targetUserId =
+    sanitizeId(
+      message.targetUserId,
+    );
+
+  const current =
+    userId
+      ? knownUsers.get(userId)
+      : null;
+
+  if (
+    !userId
+      || !targetUserId
+      || !current
+  ) {
+    return;
+  }
+
+  try {
+    await deleteFriendRequest(
+      targetUserId,
+      current.nameKey,
+    );
+  } catch (error) {
+    console.error(
+      '[persistence] failed to reject friend request',
+      error,
+    );
+
+    reject(
+      socket,
+      'persistence_error',
+      '好友请求状态暂时无法保存，请稍后再试。',
+    );
+    return;
+  }
+
+  forgetPendingRequest(
+    current.nameKey,
+    targetUserId,
+  );
 }
 
 function handleCollabInvite(
@@ -1740,11 +2339,25 @@ function leaveDirectory(socket) {
       Date.now();
   }
 
+  void touchPersistedUser(
+    userId,
+  );
+
   socket.directoryUserId =
     '';
 
   broadcastDirectoryStates();
 }
+
+await initializePersistence();
+
+const server =
+  new WebSocketServer({
+    host,
+    port,
+    maxPayload:
+      3 * 1024 * 1024,
+  });
 
 server.on(
   'connection',
@@ -1817,7 +2430,7 @@ server.on(
           message.type
             === 'directory-register'
         ) {
-          handleDirectoryRegister(
+          void handleDirectoryRegister(
             socket,
             message,
           );
@@ -1828,7 +2441,7 @@ server.on(
           message.type
             === 'friend-sync'
         ) {
-          handleFriendSync(
+          void handleFriendSync(
             socket,
             message,
           );
@@ -1839,7 +2452,7 @@ server.on(
           message.type
             === 'friend-request'
         ) {
-          handleFriendRequest(
+          void handleFriendRequest(
             socket,
             message,
           );
@@ -1850,7 +2463,7 @@ server.on(
           message.type
             === 'friend-accept'
         ) {
-          handleFriendAccept(
+          void handleFriendAccept(
             socket,
             message,
           );
@@ -1861,6 +2474,10 @@ server.on(
           message.type
             === 'friend-reject'
         ) {
+          void handleFriendReject(
+            socket,
+            message,
+          );
           return;
         }
 
@@ -1983,6 +2600,10 @@ server.on(
     clearInterval(
       heartbeat,
     );
+
+    if (database) {
+      void database.end();
+    }
   },
 );
 
