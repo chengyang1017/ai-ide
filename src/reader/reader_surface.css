@@ -96,7 +96,7 @@
   font-size: var(--code-font-size);
   line-height: var(--code-line-height);
   font-family: var(--code-font-family);
-  tab-size: 2;
+  tab-size: var(--code-tab-size);
 }
 
 .reader-code code {
@@ -217,12 +217,12 @@
 
   .reader-code {
     padding-right: 32px;
-    font-size: 14px;
-    line-height: 24px;
+    font-size: var(--code-font-size);
+    line-height: var(--code-line-height);
   }
 
   .reader-code-line {
-    min-height: 24px;
+    min-height: var(--code-line-height);
   }
 }
 

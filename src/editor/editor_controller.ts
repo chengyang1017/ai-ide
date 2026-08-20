@@ -663,6 +663,31 @@ export class EditorController {
     existing?.dispose();
 
     const model = monaco.editor.createModel(file.content, file.language, uri);
+
+
+    model.updateOptions({
+
+      tabSize:
+
+        Math.max(
+
+          1,
+
+          Math.round(
+
+            readCssNumber(
+
+              '--code-tab-size',
+
+              2,
+
+            ),
+
+          ),
+
+        ),
+
+    });
     const observableModel = model as unknown as {
       onDidChangeContent(listener: () => void): { dispose(): void };
     };

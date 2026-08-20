@@ -2022,6 +2022,53 @@ export function installReaderSurface(
     );
   };
 
+  let syntaxRenderFrame = 0;
+
+  const scheduleSyntaxRender =
+    (): void => {
+      if (
+        effectiveMode
+          !== 'reader'
+          || syntaxRenderFrame !== 0
+      ) {
+        return;
+      }
+
+      syntaxRenderFrame =
+        requestAnimationFrame(
+          () => {
+            syntaxRenderFrame = 0;
+
+            if (
+              effectiveMode
+                === 'reader'
+            ) {
+              void renderCurrentFile();
+            }
+          },
+        );
+    };
+
+  const tokenEditor =
+    editor as unknown as {
+      onDidChangeModelTokens(
+        listener: () => void,
+      ): {
+        dispose(): void;
+      };
+    };
+
+  const tokenModelDisposable =
+    tokenEditor
+      .onDidChangeModelTokens(
+        scheduleSyntaxRender,
+      );
+
+  const languageModelDisposable =
+    editor
+      .onDidChangeModelLanguage(
+        scheduleSyntaxRender,
+      );
   const modelDisposable =
     editor.onDidChangeModel(
       () => {
@@ -2163,6 +2210,14 @@ export function installReaderSurface(
       );
     }
 
+    if (syntaxRenderFrame !== 0) {
+      cancelAnimationFrame(
+        syntaxRenderFrame,
+      );
+    }
+
+    tokenModelDisposable.dispose();
+    languageModelDisposable.dispose();
     modelDisposable.dispose();
     contentDisposable.dispose();
     rootObserver?.disconnect();
