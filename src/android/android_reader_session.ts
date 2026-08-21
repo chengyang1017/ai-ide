@@ -19,6 +19,7 @@ const RESTORE_RETRY_DELAY_MS = 80;
 
 let pendingRestore:
   AndroidReaderSession | null = null;
+let lastObservedRoot = '';
 
 function isSession(
   value: unknown,
@@ -366,6 +367,12 @@ function restoreSessionWhenReady(
 
 function handleProjectRootChange(): void {
   const rootPath = projectRoot();
+
+  if (rootPath === lastObservedRoot) {
+    return;
+  }
+
+  lastObservedRoot = rootPath;
 
   if (!rootPath) {
     pendingRestore = null;
