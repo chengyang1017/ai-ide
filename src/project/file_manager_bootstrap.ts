@@ -2,19 +2,19 @@ type DesktopFileManagerBridge = {
   createProjectFile?: unknown;
 };
 
-const bridge = (
+const desktopFileManagerBridge = (
   window as Window & {
     tutorIde?: DesktopFileManagerBridge;
   }
 ).tutorIde;
 
 if (
-  typeof bridge?.createProjectFile
+  typeof desktopFileManagerBridge?.createProjectFile
     === 'function'
 ) {
   void (async () => {
     await import('./file_manager');
     await import('./file_manager_create_dialog');
-    await import('./file_manager_multiselect');
+    await import('./file_manager_multiselect_loader');
   })();
 }
