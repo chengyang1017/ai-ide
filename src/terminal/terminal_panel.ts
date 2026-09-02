@@ -211,12 +211,13 @@ function installTerminal(): boolean {
       return;
     }
 
-    output.textContent += text;
-    if (output.textContent.length > MAX_OUTPUT_CHARS) {
-      output.textContent = output.textContent.slice(
-        -Math.floor(MAX_OUTPUT_CHARS * 0.7),
-      );
-    }
+    const nextText = (output.textContent ?? '') + text;
+    output.textContent =
+      nextText.length > MAX_OUTPUT_CHARS
+        ? nextText.slice(
+            -Math.floor(MAX_OUTPUT_CHARS * 0.7),
+          )
+        : nextText;
     output.scrollTop = output.scrollHeight;
   }
 
@@ -460,6 +461,10 @@ function installTerminal(): boolean {
 }
 
 function bootstrapTerminal(): void {
+  if (!terminalBridge()) {
+    return;
+  }
+
   if (installTerminal()) {
     return;
   }
