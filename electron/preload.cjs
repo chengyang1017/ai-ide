@@ -8,9 +8,11 @@ function rememberProjectSnapshot(snapshot) {
   if (
     snapshot
       && typeof snapshot.rootPath === 'string'
-      && path.isAbsolute(snapshot.rootPath)
   ) {
-    activeProjectRoot = path.resolve(snapshot.rootPath);
+    activeProjectRoot =
+      path.isAbsolute(snapshot.rootPath)
+        ? path.resolve(snapshot.rootPath)
+        : '';
   }
 
   return snapshot;
@@ -23,7 +25,7 @@ async function invokeProjectSnapshot(channel, ...args) {
 
 function requireProjectRoot() {
   if (!activeProjectRoot) {
-    throw new Error('请先打开一个真实项目');
+    throw new Error('请先打开一个本地真实项目');
   }
 
   return activeProjectRoot;
