@@ -1,7 +1,107 @@
+import './tutor_dialog.css';
+
 const TARGET_PATTERN =
   /·\s+(.+):(\d+)\s*$/;
 
 let installed = false;
+
+function splitSpeechIntoChunks(
+  text: string,
+): string[] {
+  if (!text) {
+    return [];
+  }
+
+  const chunks: string[] = [];
+  let chunkStart = 0;
+  let sentenceCount = 0;
+
+  const strongBoundary =
+    new Set([
+      '。',
+      '！',
+      '？',
+      '；',
+      '!',
+      '?',
+      ';',
+    ]);
+
+  for (
+    let index = 0;
+    index < text.length;
+    index += 1
+  ) {
+    const char = text[index] ?? '';
+    const next = text[index + 1] ?? '';
+
+    const englishPeriod =
+      char === '.'
+      && (
+        index === text.length - 1
+        || /\s/.test(next)
+      );
+
+    const lineBreak = char === '\n';
+    const sentenceBoundary =
+      strongBoundary.has(char)
+      || englishPeriod;
+
+    if (
+      !lineBreak
+      && !sentenceBoundary
+    ) {
+      continue;
+    }
+
+    if (sentenceBoundary) {
+      sentenceCount += 1;
+    }
+
+    let end = index + 1;
+
+    while (
+      end < text.length
+      && /[\t \r\n]/.test(
+        text[end] ?? '',
+      )
+    ) {
+      end += 1;
+    }
+
+    const candidate =
+      text.slice(
+        chunkStart,
+        end,
+      );
+
+    const visibleLength =
+      candidate
+        .replace(/\s+/g, '')
+        .length;
+
+    if (
+      lineBreak
+      || sentenceCount >= 2
+      || visibleLength >= 72
+    ) {
+      chunks.push(candidate);
+      chunkStart = end;
+      sentenceCount = 0;
+      index = end - 1;
+    }
+  }
+
+  if (chunkStart < text.length) {
+    chunks.push(
+      text.slice(chunkStart),
+    );
+  }
+
+  return chunks.length > 0
+    ? chunks
+    : [text];
+}
 
 function installReaderTutorBridge(): void {
   if (installed) {
@@ -39,13 +139,24 @@ function installReaderTutorBridge(): void {
 
   installed = true;
 
-  // Keep one caption source only. CharacterController already writes the
-  // exact spoken text into #speech-bubble, so move that existing node into
-  // the robot instead of creating a second Reader/Edit caption.
-  // Once nested, every robot transform automatically carries the dialog too.
+  // CharacterController remains the only speech-text source. Moving the
+  // existing bubble inside the robot means Edit and Reader mode share the
+  // same caption node and therefore cannot drift into different wording.
   if (bubble.parentElement !== character) {
     character.appendChild(bubble);
   }
+
+  bubble.classList.add(
+    'tutor-dialog-card',
+  );
+  bubble.setAttribute(
+    'role',
+    'status',
+  );
+  bubble.setAttribute(
+    'aria-live',
+    'polite',
+  );
 
   let activeLine: number | null = null;
   let activeTargetKey = '';
@@ -57,34 +168,103 @@ function installReaderTutorBridge(): void {
       stage.dataset.editorSurface
         === 'reader';
 
+  const formatSpeechBubble =
+    (): void => {
+      if (
+        bubble.querySelector(
+          '.tutor-dialog-chunk',
+        )
+      ) {
+        return;
+      }
+
+      const speech =
+        bubble.textContent ?? '';
+
+      if (!speech.trim()) {
+        return;
+      }
+
+      const chunks =
+        splitSpeechIntoChunks(
+          speech,
+        );
+
+      const fragment =
+        document.createDocumentFragment();
+
+      for (const chunk of chunks) {
+        const row =
+          document.createElement('span');
+
+        row.className =
+          'tutor-dialog-chunk';
+        row.textContent = chunk;
+        fragment.appendChild(row);
+      }
+
+      // The spans contain slices of the original string without adding or
+      // deleting characters. bubble.textContent therefore still equals the
+      // exact text sent to speechSynthesis.
+      bubble.replaceChildren(
+        fragment,
+      );
+    };
+
   const syncBubbleAnchor =
     (): void => {
       bubblePositionFrame = 0;
 
+      formatSpeechBubble();
+
       const availableWidth =
         Math.max(
-          120,
+          220,
           stage.clientWidth - 24,
         );
 
-      bubble.style.maxWidth =
-        `${availableWidth}px`;
-      bubble.style.width =
-        isReaderMode()
-          ? `${Math.min(460, availableWidth)}px`
-          : '';
+      const preferredWidth =
+        stage.clientWidth <= 820
+          ? 340
+          : 420;
+
+      const dialogWidth =
+        Math.min(
+          preferredWidth,
+          availableWidth,
+        );
+
+      // Tablet CSS historically pinned the old one-line bubble using
+      // !important. Inline important values deliberately win here so the
+      // dialog can stay attached to the robot on every layout.
+      bubble.style.setProperty(
+        'width',
+        `${dialogWidth}px`,
+        'important',
+      );
+      bubble.style.setProperty(
+        'max-width',
+        `${availableWidth}px`,
+        'important',
+      );
 
       const stageRect =
         stage.getBoundingClientRect();
       const characterRect =
         character.getBoundingClientRect();
       const bubbleWidth =
-        Math.max(1, bubble.offsetWidth);
+        Math.max(
+          1,
+          bubble.offsetWidth,
+        );
       const bubbleHeight =
-        Math.max(1, bubble.offsetHeight);
+        Math.max(
+          1,
+          bubble.offsetHeight,
+        );
 
       const inset = 12;
-      const gap = 10;
+      const gap = 12;
       const minLeft =
         stageRect.left + inset;
       const maxLeft =
@@ -154,18 +334,60 @@ function installReaderTutorBridge(): void {
         placement = 'edge';
       }
 
-      bubble.style.left =
-        `${Math.round(
-          viewportLeft
-            - characterRect.left,
-        )}px`;
-      bubble.style.top =
-        `${Math.round(
-          viewportTop
-            - characterRect.top,
-        )}px`;
-      bubble.style.right = 'auto';
-      bubble.style.bottom = 'auto';
+      const localLeft =
+        viewportLeft
+          - characterRect.left;
+      const localTop =
+        viewportTop
+          - characterRect.top;
+
+      bubble.style.setProperty(
+        'left',
+        `${Math.round(localLeft)}px`,
+        'important',
+      );
+      bubble.style.setProperty(
+        'top',
+        `${Math.round(localTop)}px`,
+        'important',
+      );
+      bubble.style.setProperty(
+        'right',
+        'auto',
+        'important',
+      );
+      bubble.style.setProperty(
+        'bottom',
+        'auto',
+        'important',
+      );
+
+      const tailX =
+        Math.max(
+          20,
+          Math.min(
+            bubbleWidth - 20,
+            characterRect.left
+              + characterRect.width / 2
+              - viewportLeft,
+          ),
+        );
+
+      bubble.style.setProperty(
+        '--tutor-tail-x',
+        `${Math.round(tailX)}px`,
+      );
+      bubble.style.setProperty(
+        '--tutor-dialog-origin-x',
+        `${Math.round(tailX)}px`,
+      );
+      bubble.style.setProperty(
+        '--tutor-dialog-origin-y',
+        placement === 'below'
+          ? '0%'
+          : '100%',
+      );
+
       bubble.dataset.anchorPlacement =
         placement;
     };
@@ -479,9 +701,29 @@ function installReaderTutorBridge(): void {
     },
   );
 
-  const bubbleObserver =
+  const characterPositionObserver =
     new MutationObserver(
       scheduleBubbleAnchor,
+    );
+
+  characterPositionObserver.observe(
+    character,
+    {
+      attributes: true,
+      attributeFilter: [
+        'style',
+        'data-placement',
+        'data-vertical-placement',
+      ],
+    },
+  );
+
+  const bubbleObserver =
+    new MutationObserver(
+      () => {
+        formatSpeechBubble();
+        scheduleBubbleAnchor();
+      },
     );
 
   bubbleObserver.observe(
@@ -513,6 +755,7 @@ function installReaderTutorBridge(): void {
     },
   );
 
+  formatSpeechBubble();
   syncTargetFromStatus();
   scheduleBubbleAnchor();
 }
