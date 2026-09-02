@@ -3,7 +3,7 @@
   "version": "0.1.0-alpha.1",
   "private": true,
   "description": "A standalone code editor where an animated AI tutor can move directly inside the code view.",
-  "main": "electron/main.cjs",
+  "main": "electron/bootstrap.cjs",
   "scripts": {
     "dev": "concurrently -k -s first \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
