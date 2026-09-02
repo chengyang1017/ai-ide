@@ -84,20 +84,20 @@ declare global {
         path: string;
         bytes: number;
       }>;
-      createProjectFile(relativePath: string): Promise<{
+      createProjectFile?(relativePath: string): Promise<{
         path: string;
       }>;
-      createProjectDirectory(relativePath: string): Promise<{
+      createProjectDirectory?(relativePath: string): Promise<{
         path: string;
       }>;
-      moveProjectEntry(
+      moveProjectEntry?(
         sourceRelativePath: string,
         targetDirectoryRelativePath: string,
       ): Promise<{
         from: string;
         to: string;
       }>;
-      deleteProjectEntry(relativePath: string): Promise<{
+      deleteProjectEntry?(relativePath: string): Promise<{
         path: string;
         type: 'file' | 'directory';
       }>;
