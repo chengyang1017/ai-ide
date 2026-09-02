@@ -12,17 +12,14 @@ function installReaderTutorBridge(): void {
     document.querySelector<HTMLElement>(
       '#editor-stage',
     );
-
   const character =
     document.querySelector<HTMLElement>(
       '#tutor-character',
     );
-
   const bubble =
     document.querySelector<HTMLElement>(
       '#speech-bubble',
     );
-
   const status =
     document.querySelector<HTMLElement>(
       '#tutor-status',
@@ -42,19 +39,18 @@ function installReaderTutorBridge(): void {
 
   installed = true;
 
-  // The speech bubble must move with the robot. Keeping it as a sibling of
-  // #tutor-character makes its absolute position relative to tutor-surface,
-  // which is why the bubble stayed in the editor corner while the robot moved.
-  // Re-parent the existing bubble instead of creating another caption so the
-  // exact same DOM node/text is still controlled by CharacterController.
+  // Keep one caption source only. CharacterController already writes the
+  // exact spoken text into #speech-bubble, so move that existing node into
+  // the robot instead of creating a second Reader/Edit caption.
+  // Once nested, every robot transform automatically carries the dialog too.
   if (bubble.parentElement !== character) {
     character.appendChild(bubble);
   }
 
   let activeLine: number | null = null;
   let activeTargetKey = '';
-  let positionFrame = 0;
-  let bubbleFrame = 0;
+  let readerPositionFrame = 0;
+  let bubblePositionFrame = 0;
 
   const isReaderMode =
     (): boolean =>
@@ -63,7 +59,7 @@ function installReaderTutorBridge(): void {
 
   const syncBubbleAnchor =
     (): void => {
-      bubbleFrame = 0;
+      bubblePositionFrame = 0;
 
       const availableWidth =
         Math.max(
@@ -73,92 +69,75 @@ function installReaderTutorBridge(): void {
 
       bubble.style.maxWidth =
         `${availableWidth}px`;
-
-      if (isReaderMode()) {
-        bubble.style.width =
-          `${Math.min(
-            460,
-            availableWidth,
-          )}px`;
-      } else {
-        bubble.style.width = '';
-      }
+      bubble.style.width =
+        isReaderMode()
+          ? `${Math.min(460, availableWidth)}px`
+          : '';
 
       const stageRect =
         stage.getBoundingClientRect();
       const characterRect =
         character.getBoundingClientRect();
-
       const bubbleWidth =
-        Math.max(
-          1,
-          bubble.offsetWidth,
-        );
+        Math.max(1, bubble.offsetWidth);
       const bubbleHeight =
-        Math.max(
-          1,
-          bubble.offsetHeight,
-        );
+        Math.max(1, bubble.offsetHeight);
 
       const inset = 12;
       const gap = 10;
-
-      const minViewportLeft =
+      const minLeft =
         stageRect.left + inset;
-      const maxViewportLeft =
+      const maxLeft =
         Math.max(
-          minViewportLeft,
+          minLeft,
           stageRect.right
             - inset
             - bubbleWidth,
         );
-
-      const preferredViewportLeft =
+      const preferredLeft =
         characterRect.left
           + characterRect.width / 2
           - bubbleWidth / 2;
-
       const viewportLeft =
         Math.max(
-          minViewportLeft,
+          minLeft,
           Math.min(
-            maxViewportLeft,
-            preferredViewportLeft,
+            maxLeft,
+            preferredLeft,
           ),
         );
 
-      const aboveViewportTop =
+      const aboveTop =
         characterRect.top
           - gap
           - bubbleHeight;
-      const belowViewportTop =
+      const belowTop =
         characterRect.bottom + gap;
 
       let viewportTop: number;
-      let verticalPlacement:
+      let placement:
         | 'above'
         | 'below'
         | 'edge';
 
       if (
-        aboveViewportTop
+        aboveTop
           >= stageRect.top + inset
       ) {
-        viewportTop = aboveViewportTop;
-        verticalPlacement = 'above';
+        viewportTop = aboveTop;
+        placement = 'above';
       } else if (
-        belowViewportTop
-          + bubbleHeight
+        belowTop + bubbleHeight
           <= stageRect.bottom - inset
       ) {
-        viewportTop = belowViewportTop;
-        verticalPlacement = 'below';
+        viewportTop = belowTop;
+        placement = 'below';
       } else {
-        const minViewportTop =
+        const minTop =
           stageRect.top + inset;
-        const maxViewportTop =
+        const maxTop =
           Math.max(
-            minViewportTop,
+            minTop,
             stageRect.bottom
               - inset
               - bubbleHeight,
@@ -166,13 +145,13 @@ function installReaderTutorBridge(): void {
 
         viewportTop =
           Math.max(
-            minViewportTop,
+            minTop,
             Math.min(
-              maxViewportTop,
+              maxTop,
               characterRect.top,
             ),
           );
-        verticalPlacement = 'edge';
+        placement = 'edge';
       }
 
       bubble.style.left =
@@ -188,16 +167,16 @@ function installReaderTutorBridge(): void {
       bubble.style.right = 'auto';
       bubble.style.bottom = 'auto';
       bubble.dataset.anchorPlacement =
-        verticalPlacement;
+        placement;
     };
 
   const scheduleBubbleAnchor =
     (): void => {
-      if (bubbleFrame !== 0) {
+      if (bubblePositionFrame !== 0) {
         return;
       }
 
-      bubbleFrame =
+      bubblePositionFrame =
         window.requestAnimationFrame(
           syncBubbleAnchor,
         );
@@ -210,9 +189,6 @@ function installReaderTutorBridge(): void {
           === 'speaking'
         && bubble.textContent?.trim()
       ) {
-        // CharacterController uses the exact same speech string for this
-        // bubble and VoiceController. This bridge only anchors that existing
-        // caption to the robot; it never creates or rewrites speech text.
         bubble.classList.add(
           'visible',
         );
@@ -221,9 +197,9 @@ function installReaderTutorBridge(): void {
       scheduleBubbleAnchor();
     };
 
-  const positionCharacter =
+  const positionReaderCharacter =
     (): void => {
-      positionFrame = 0;
+      readerPositionFrame = 0;
 
       if (
         !isReaderMode()
@@ -239,7 +215,6 @@ function installReaderTutorBridge(): void {
         );
 
       if (!row) {
-        scheduleBubbleAnchor();
         return;
       }
 
@@ -249,15 +224,12 @@ function installReaderTutorBridge(): void {
         row.getBoundingClientRect();
 
       if (
-        rowRect.bottom
-          < stageRect.top
-          || rowRect.top
-            > stageRect.bottom
+        rowRect.bottom < stageRect.top
+          || rowRect.top > stageRect.bottom
       ) {
         character.classList.add(
           'offscreen',
         );
-        scheduleBubbleAnchor();
         return;
       }
 
@@ -265,7 +237,6 @@ function installReaderTutorBridge(): void {
         row.querySelector<HTMLElement>(
           '.reader-line-content',
         );
-
       const contentRect =
         content?.getBoundingClientRect()
           ?? rowRect;
@@ -303,7 +274,6 @@ function installReaderTutorBridge(): void {
             - characterWidth
             - 8,
         );
-
       const left =
         Math.max(
           8,
@@ -319,14 +289,11 @@ function installReaderTutorBridge(): void {
           rowRect.height || 24,
         );
       const targetTop =
-        rowRect.top
-          - stageRect.top;
+        rowRect.top - stageRect.top;
       const safeTop =
-        targetTop
-          - lineHeight * 2;
+        targetTop - lineHeight * 2;
       const safeBottom =
-        targetTop
-          + lineHeight * 3;
+        targetTop + lineHeight * 3;
       const belowY =
         safeBottom + gap;
       const aboveY =
@@ -355,8 +322,7 @@ function installReaderTutorBridge(): void {
         verticalPlacement = 'above';
       } else {
         y =
-          targetTop
-            < stageHeight / 2
+          targetTop < stageHeight / 2
             ? maxY
             : 8;
         verticalPlacement = 'edge';
@@ -366,24 +332,33 @@ function installReaderTutorBridge(): void {
         'code-end';
       character.dataset.verticalPlacement =
         verticalPlacement;
-      character.style.transform =
+
+      const nextTransform =
         `translate3d(${Math.round(left)}px, ${Math.round(y)}px, 0)`;
+
+      if (
+        character.style.transform
+          !== nextTransform
+      ) {
+        character.style.transform =
+          nextTransform;
+      }
+
       character.classList.remove(
         'offscreen',
       );
-
       scheduleBubbleAnchor();
     };
 
-  const schedulePosition =
+  const scheduleReaderPosition =
     (): void => {
-      if (positionFrame !== 0) {
+      if (readerPositionFrame !== 0) {
         return;
       }
 
-      positionFrame =
+      readerPositionFrame =
         window.requestAnimationFrame(
-          positionCharacter,
+          positionReaderCharacter,
         );
     };
 
@@ -410,7 +385,7 @@ function installReaderTutorBridge(): void {
         ),
       );
 
-      schedulePosition();
+      scheduleReaderPosition();
       scheduleBubbleAnchor();
     };
 
@@ -446,7 +421,7 @@ function installReaderTutorBridge(): void {
           if (changed) {
             revealActiveLine();
           } else {
-            schedulePosition();
+            scheduleReaderPosition();
           }
         }
       }
@@ -489,24 +464,16 @@ function installReaderTutorBridge(): void {
     },
   );
 
-  const characterObserver =
+  const voiceObserver =
     new MutationObserver(
-      () => {
-        ensureSpeechDialog();
-        schedulePosition();
-        scheduleBubbleAnchor();
-      },
+      ensureSpeechDialog,
     );
 
-  characterObserver.observe(
+  voiceObserver.observe(
     character,
     {
       attributes: true,
       attributeFilter: [
-        'class',
-        'style',
-        'data-placement',
-        'data-vertical-placement',
         'data-voice-state',
       ],
     },
@@ -533,7 +500,7 @@ function installReaderTutorBridge(): void {
   window.addEventListener(
     'ai-ide-reader-viewport',
     () => {
-      schedulePosition();
+      scheduleReaderPosition();
       scheduleBubbleAnchor();
     },
   );
@@ -541,7 +508,7 @@ function installReaderTutorBridge(): void {
   window.addEventListener(
     'resize',
     () => {
-      schedulePosition();
+      scheduleReaderPosition();
       scheduleBubbleAnchor();
     },
   );
