@@ -19,6 +19,7 @@ export class CharacterController {
   private questionResume: (() => void) | null = null;
   private agentEditZoneId: string | null = null;
   private agentEditSequence = 0;
+  private agentEditQueue: Promise<void> = Promise.resolve();
 
   private readonly character: HTMLElement;
   private readonly bubble: HTMLElement;
@@ -96,7 +97,11 @@ export class CharacterController {
           return;
         }
 
-        void this.presentAgentEdit(detail);
+        this.agentEditQueue = this.agentEditQueue
+          .then(() => this.presentAgentEdit(detail))
+          .catch(() => {
+            // A failed presentation must not block later Agent edits.
+          });
       },
     );
   }
@@ -353,12 +358,14 @@ export class CharacterController {
       `🤖 Agent 正在修改 · ${detail.filePath}:${detail.line}`,
     );
 
-    window.setTimeout(() => {
-      if (sequence !== this.agentEditSequence) {
-        return;
-      }
-      this.character.dataset.agentEditing = 'false';
-    }, 2200);
+    // 这一小段停留时间是给用户真正“看它改”的，而不是为了等 I/O。
+    await delay(720);
+
+    if (sequence !== this.agentEditSequence) {
+      return;
+    }
+
+    this.character.dataset.agentEditing = 'false';
   }
 
   private showAgentEditDiff(
