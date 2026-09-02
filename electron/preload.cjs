@@ -70,6 +70,25 @@ contextBridge.exposeInMainWorld('tutorIde', {
     requireProjectRoot(),
     relativePath,
   ),
+  startTerminal: () => ipcRenderer.invoke(
+    'terminal:start',
+    requireProjectRoot(),
+  ),
+  writeTerminal: (input) => ipcRenderer.invoke(
+    'terminal:write',
+    input,
+  ),
+  stopTerminal: () => ipcRenderer.invoke('terminal:stop'),
+  onTerminalData: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('terminal:data', wrapped);
+    return () => ipcRenderer.removeListener('terminal:data', wrapped);
+  },
+  onTerminalExit: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('terminal:exit', wrapped);
+    return () => ipcRenderer.removeListener('terminal:exit', wrapped);
+  },
   watchProjectFile: (relativePath) => ipcRenderer.invoke('project:watch-file', relativePath),
   unwatchProjectFile: () => ipcRenderer.invoke('project:unwatch-file'),
   onProjectFileChanged: (listener) => {
