@@ -36,7 +36,7 @@ type AgentBridge = {
     listener: (event: AgentEvent) => void,
   ) => () => void;
   restoreProject: () => Promise<ProjectSnapshot | null>;
-  hasOpenAiKey?: () => Promise<boolean>;
+  hasOpenAiKey: () => Promise<boolean>;
 };
 
 function bridge(): AgentBridge | null {
@@ -51,6 +51,7 @@ function bridge(): AgentBridge | null {
       || typeof candidate.cancelAgent !== 'function'
       || typeof candidate.onAgentEvent !== 'function'
       || typeof candidate.restoreProject !== 'function'
+      || typeof candidate.hasOpenAiKey !== 'function'
   ) {
     return null;
   }
@@ -384,10 +385,7 @@ function installAgentPanel(): boolean {
       return;
     }
 
-    if (
-      typeof api.hasOpenAiKey === 'function'
-        && !(await api.hasOpenAiKey())
-    ) {
+    if (!(await api.hasOpenAiKey())) {
       appendLog(
         'error',
         '还没有 OpenAI API Key，请先点击顶部 Key 设置。',
