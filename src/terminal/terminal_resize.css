@@ -1,0 +1,64 @@
+.editor-pane {
+  --terminal-panel-height: 260px;
+}
+
+.editor-pane[data-terminal-open="true"] {
+  grid-template-rows:
+    35px
+    minmax(120px, 1fr)
+    6px
+    var(--terminal-panel-height);
+}
+
+.terminal-resize-handle {
+  position: relative;
+  display: none;
+  min-width: 0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+  background: #15191f;
+  outline: none;
+}
+
+.editor-pane[data-terminal-open="true"]
+  .terminal-resize-handle {
+  display: block;
+}
+
+.terminal-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 2px;
+  background: #303641;
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.terminal-resize-handle:hover::after,
+.terminal-resize-handle:focus-visible::after,
+body[data-terminal-resizing="true"]
+  .terminal-resize-handle::after {
+  background: #6a7b94;
+  box-shadow: 0 0 0 1px rgb(106 123 148 / 22%);
+}
+
+body[data-terminal-resizing="true"],
+body[data-terminal-resizing="true"] * {
+  cursor: ns-resize !important;
+  user-select: none !important;
+}
+
+@media (max-width: 900px) {
+  .editor-pane[data-terminal-open="true"] {
+    grid-template-rows:
+      35px
+      minmax(100px, 1fr)
+      6px
+      var(--terminal-panel-height);
+  }
+}
