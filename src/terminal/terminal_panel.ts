@@ -15,13 +15,13 @@ type TerminalExitPayload = {
 };
 
 type TerminalBridge = {
-  startTerminal?: () => Promise<TerminalStartResult>;
-  writeTerminal?: (input: string) => Promise<boolean>;
-  stopTerminal?: () => Promise<boolean>;
-  onTerminalData?: (
+  startTerminal: () => Promise<TerminalStartResult>;
+  writeTerminal: (input: string) => Promise<boolean>;
+  stopTerminal: () => Promise<boolean>;
+  onTerminalData: (
     listener: (payload: TerminalDataPayload) => void,
   ) => () => void;
-  onTerminalExit?: (
+  onTerminalExit: (
     listener: (payload: TerminalExitPayload) => void,
   ) => () => void;
 };
@@ -29,23 +29,23 @@ type TerminalBridge = {
 const MAX_OUTPUT_CHARS = 250_000;
 
 function terminalBridge(): TerminalBridge | null {
-  const api = (
+  const candidate = (
     window as Window & {
-      tutorIde?: TerminalBridge;
+      tutorIde?: Partial<TerminalBridge>;
     }
   ).tutorIde;
 
   if (
-    typeof api?.startTerminal !== 'function'
-      || typeof api.writeTerminal !== 'function'
-      || typeof api.stopTerminal !== 'function'
-      || typeof api.onTerminalData !== 'function'
-      || typeof api.onTerminalExit !== 'function'
+    typeof candidate?.startTerminal !== 'function'
+      || typeof candidate.writeTerminal !== 'function'
+      || typeof candidate.stopTerminal !== 'function'
+      || typeof candidate.onTerminalData !== 'function'
+      || typeof candidate.onTerminalExit !== 'function'
   ) {
     return null;
   }
 
-  return api;
+  return candidate as TerminalBridge;
 }
 
 function stripAnsi(value: string): string {
@@ -75,6 +75,17 @@ function isLocalProjectOpen(): boolean {
     ?.trim() === '真实项目';
 }
 
+function mustQuery<T extends Element>(
+  root: ParentNode,
+  selector: string,
+): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) {
+    throw new Error(`Missing terminal element: ${selector}`);
+  }
+  return element;
+}
+
 function installTerminal(): boolean {
   const api = terminalBridge();
   const commandBar =
@@ -92,14 +103,17 @@ function installTerminal(): boolean {
   ) {
     return true;
   }
+
   document.documentElement.dataset.terminalPanel = 'true';
 
   const divider = document.createElement('div');
-  divider.className = 'command-divider terminal-command-divider';
+  divider.className =
+    'command-divider terminal-command-divider';
   divider.setAttribute('aria-hidden', 'true');
 
   const group = document.createElement('div');
-  group.className = 'command-group terminal-command-group';
+  group.className =
+    'command-group terminal-command-group';
   group.innerHTML = `
     <span class="command-group-label">TERMINAL</span>
     <button type="button" data-terminal-toggle title="切换终端 · Ctrl+\`">⌨ 终端</button>
@@ -139,62 +153,71 @@ function installTerminal(): boolean {
   `;
   editorPane.append(panel);
 
-  const toggleButton =
-    group.querySelector<HTMLButtonElement>(
-      '[data-terminal-toggle]',
-    );
-  const closeButton =
-    panel.querySelector<HTMLButtonElement>(
-      '[data-terminal-close]',
-    );
-  const clearButton =
-    panel.querySelector<HTMLButtonElement>(
-      '[data-terminal-clear]',
-    );
-  const restartButton =
-    panel.querySelector<HTMLButtonElement>(
-      '[data-terminal-restart]',
-    );
-  const output =
-    panel.querySelector<HTMLPreElement>(
-      '[data-terminal-output]',
-    );
-  const form =
-    panel.querySelector<HTMLFormElement>(
-      '[data-terminal-form]',
-    );
-  const input =
-    panel.querySelector<HTMLInputElement>(
-      '[data-terminal-input]',
-    );
-  const shellLabel =
-    panel.querySelector<HTMLElement>(
-      '[data-terminal-shell]',
-    );
-  const cwdLabel =
-    panel.querySelector<HTMLElement>(
-      '[data-terminal-cwd]',
-    );
-  const promptLabel =
-    panel.querySelector<HTMLElement>(
-      '[data-terminal-prompt]',
-    );
+  let ui: {
+    api: TerminalBridge;
+    editorPane: HTMLElement;
+    toggleButton: HTMLButtonElement;
+    closeButton: HTMLButtonElement;
+    clearButton: HTMLButtonElement;
+    restartButton: HTMLButtonElement;
+    output: HTMLPreElement;
+    form: HTMLFormElement;
+    input: HTMLInputElement;
+    shellLabel: HTMLElement;
+    cwdLabel: HTMLElement;
+    promptLabel: HTMLElement;
+  };
 
-  if (
-    !toggleButton
-      || !closeButton
-      || !clearButton
-      || !restartButton
-      || !output
-      || !form
-      || !input
-      || !shellLabel
-      || !cwdLabel
-      || !promptLabel
-  ) {
+  try {
+    ui = {
+      api,
+      editorPane,
+      toggleButton: mustQuery<HTMLButtonElement>(
+        group,
+        '[data-terminal-toggle]',
+      ),
+      closeButton: mustQuery<HTMLButtonElement>(
+        panel,
+        '[data-terminal-close]',
+      ),
+      clearButton: mustQuery<HTMLButtonElement>(
+        panel,
+        '[data-terminal-clear]',
+      ),
+      restartButton: mustQuery<HTMLButtonElement>(
+        panel,
+        '[data-terminal-restart]',
+      ),
+      output: mustQuery<HTMLPreElement>(
+        panel,
+        '[data-terminal-output]',
+      ),
+      form: mustQuery<HTMLFormElement>(
+        panel,
+        '[data-terminal-form]',
+      ),
+      input: mustQuery<HTMLInputElement>(
+        panel,
+        '[data-terminal-input]',
+      ),
+      shellLabel: mustQuery<HTMLElement>(
+        panel,
+        '[data-terminal-shell]',
+      ),
+      cwdLabel: mustQuery<HTMLElement>(
+        panel,
+        '[data-terminal-cwd]',
+      ),
+      promptLabel: mustQuery<HTMLElement>(
+        panel,
+        '[data-terminal-prompt]',
+      ),
+    };
+  } catch {
     panel.remove();
     group.remove();
     divider.remove();
+    delete document.documentElement.dataset.terminalPanel;
     return false;
   }
 
@@ -211,23 +234,26 @@ function installTerminal(): boolean {
       return;
     }
 
-    const nextText = (output.textContent ?? '') + text;
-    output.textContent =
+    const nextText =
+      (ui.output.textContent ?? '') + text;
+
+    ui.output.textContent =
       nextText.length > MAX_OUTPUT_CHARS
         ? nextText.slice(
             -Math.floor(MAX_OUTPUT_CHARS * 0.7),
           )
         : nextText;
-    output.scrollTop = output.scrollHeight;
+
+    ui.output.scrollTop = ui.output.scrollHeight;
   }
 
   function setSessionUi(
     result: TerminalStartResult,
   ): void {
-    shellLabel.textContent = result.shell;
-    cwdLabel.textContent = result.cwd;
-    cwdLabel.title = result.cwd;
-    promptLabel.textContent =
+    ui.shellLabel.textContent = result.shell;
+    ui.cwdLabel.textContent = result.cwd;
+    ui.cwdLabel.title = result.cwd;
+    ui.promptLabel.textContent =
       result.shell.toLowerCase().includes('powershell')
         ? 'PS>'
         : '$';
@@ -248,13 +274,14 @@ function installTerminal(): boolean {
     }
 
     sessionStarting = true;
-    input.disabled = true;
-    restartButton.disabled = true;
+    ui.input.disabled = true;
+    ui.restartButton.disabled = true;
 
     try {
-      const result = await api.startTerminal!();
+      const result = await ui.api.startTerminal();
       sessionRunning = true;
       setSessionUi(result);
+
       if (announce) {
         appendOutput(
           `\n[terminal] ${result.shell} · ${result.cwd}\n`,
@@ -268,10 +295,10 @@ function installTerminal(): boolean {
       appendOutput(`\n[terminal] ${message}\n`);
     } finally {
       sessionStarting = false;
-      input.disabled = false;
-      restartButton.disabled = false;
+      ui.input.disabled = false;
+      ui.restartButton.disabled = false;
       if (visible) {
-        input.focus();
+        ui.input.focus();
       }
     }
   }
@@ -281,17 +308,19 @@ function installTerminal(): boolean {
       return;
     }
 
-    input.disabled = true;
-    restartButton.disabled = true;
+    ui.input.disabled = true;
+    ui.restartButton.disabled = true;
+
     try {
-      await api.stopTerminal!();
+      await ui.api.stopTerminal();
     } catch {
       // A dead session is already effectively stopped.
     }
+
     sessionRunning = false;
     appendOutput('\n[terminal] 正在重启…\n');
-    input.disabled = false;
-    restartButton.disabled = false;
+    ui.input.disabled = false;
+    ui.restartButton.disabled = false;
     await startSession(false);
   }
 
@@ -301,13 +330,17 @@ function installTerminal(): boolean {
     if (!sessionRunning) {
       await startSession(false);
     }
+
     if (!sessionRunning) {
       return;
     }
 
-    appendOutput(`\n${promptLabel.textContent ?? '>'} ${command}\n`);
+    appendOutput(
+      `\n${ui.promptLabel.textContent ?? '>'} ${command}\n`,
+    );
+
     try {
-      await api.writeTerminal!(command);
+      await ui.api.writeTerminal(command);
     } catch (error) {
       const message =
         error instanceof Error
@@ -321,23 +354,26 @@ function installTerminal(): boolean {
   function setVisible(nextVisible: boolean): void {
     visible = nextVisible;
     panel.hidden = !nextVisible;
-    editorPane.dataset.terminalOpen = String(nextVisible);
-    toggleButton.dataset.active = String(nextVisible);
+    ui.editorPane.dataset.terminalOpen =
+      String(nextVisible);
+    ui.toggleButton.dataset.active =
+      String(nextVisible);
 
     if (nextVisible) {
       void startSession();
       window.requestAnimationFrame(() => {
-        input.focus();
+        ui.input.focus();
       });
     }
   }
 
-  const disposeData = api.onTerminalData!(
+  const disposeData = ui.api.onTerminalData(
     ({ data }) => {
       appendOutput(data);
     },
   );
-  const disposeExit = api.onTerminalExit!(
+
+  const disposeExit = ui.api.onTerminalExit(
     ({ code, signal }) => {
       sessionRunning = false;
       appendOutput(
@@ -348,24 +384,27 @@ function installTerminal(): boolean {
     },
   );
 
-  toggleButton.addEventListener('click', () => {
+  ui.toggleButton.addEventListener('click', () => {
     setVisible(!visible);
   });
-  closeButton.addEventListener('click', () => {
+
+  ui.closeButton.addEventListener('click', () => {
     setVisible(false);
   });
-  clearButton.addEventListener('click', () => {
-    output.textContent = '';
-    input.focus();
+
+  ui.clearButton.addEventListener('click', () => {
+    ui.output.textContent = '';
+    ui.input.focus();
   });
-  restartButton.addEventListener('click', () => {
+
+  ui.restartButton.addEventListener('click', () => {
     void restartSession();
   });
 
-  form.addEventListener('submit', (event) => {
+  ui.form.addEventListener('submit', (event) => {
     event.preventDefault();
-    const command = input.value;
-    input.value = '';
+    const command = ui.input.value;
+    ui.input.value = '';
 
     if (command.trim()) {
       history.push(command);
@@ -373,21 +412,26 @@ function installTerminal(): boolean {
         history.shift();
       }
     }
+
     historyIndex = history.length;
     void sendCommand(command);
   });
 
-  input.addEventListener('keydown', (event) => {
+  ui.input.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowUp') {
       if (history.length === 0) {
         return;
       }
+
       event.preventDefault();
-      historyIndex = Math.max(0, historyIndex - 1);
-      input.value = history[historyIndex] ?? '';
-      input.setSelectionRange(
-        input.value.length,
-        input.value.length,
+      historyIndex = Math.max(
+        0,
+        historyIndex - 1,
+      );
+      ui.input.value = history[historyIndex] ?? '';
+      ui.input.setSelectionRange(
+        ui.input.value.length,
+        ui.input.value.length,
       );
       return;
     }
@@ -396,18 +440,19 @@ function installTerminal(): boolean {
       if (history.length === 0) {
         return;
       }
+
       event.preventDefault();
       historyIndex = Math.min(
         history.length,
         historyIndex + 1,
       );
-      input.value =
+      ui.input.value =
         historyIndex >= history.length
           ? ''
           : history[historyIndex] ?? '';
-      input.setSelectionRange(
-        input.value.length,
-        input.value.length,
+      ui.input.setSelectionRange(
+        ui.input.value.length,
+        ui.input.value.length,
       );
       return;
     }
@@ -417,7 +462,7 @@ function installTerminal(): boolean {
         && event.key.toLowerCase() === 'l'
     ) {
       event.preventDefault();
-      output.textContent = '';
+      ui.output.textContent = '';
     }
   });
 
@@ -433,13 +478,19 @@ function installTerminal(): boolean {
     }
   });
 
-  const projectRoot = document.querySelector('#project-root');
+  const projectRoot =
+    document.querySelector('#project-root');
+
   if (projectRoot) {
     new MutationObserver(() => {
       const nextRoot = currentWorkspaceRoot();
-      if (!nextRoot || nextRoot === lastWorkspaceRoot) {
+      if (
+        !nextRoot
+          || nextRoot === lastWorkspaceRoot
+      ) {
         return;
       }
+
       lastWorkspaceRoot = nextRoot;
       if (visible) {
         void restartSession();
@@ -451,11 +502,15 @@ function installTerminal(): boolean {
     });
   }
 
-  window.addEventListener('beforeunload', () => {
-    disposeData();
-    disposeExit();
-    void api.stopTerminal!();
-  }, { once: true });
+  window.addEventListener(
+    'beforeunload',
+    () => {
+      disposeData();
+      disposeExit();
+      void ui.api.stopTerminal();
+    },
+    { once: true },
+  );
 
   return true;
 }
