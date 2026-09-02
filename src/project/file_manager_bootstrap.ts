@@ -12,5 +12,8 @@ if (
   typeof bridge?.createProjectFile
     === 'function'
 ) {
-  void import('./file_manager');
+  void Promise.all([
+    import('./file_manager'),
+    import('./file_manager_create_dialog'),
+  ]);
 }
