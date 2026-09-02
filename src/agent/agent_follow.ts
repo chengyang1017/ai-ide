@@ -79,12 +79,10 @@ function delay(milliseconds: number): Promise<void> {
 
 function installAgentFollow(): boolean {
   const api = bridge();
-  const editorStage =
-    document.querySelector<HTMLElement>('#editor-stage');
   const agentPanel =
     document.querySelector<HTMLElement>('.agent-panel');
 
-  if (!api || !editorStage || !agentPanel) {
+  if (!api || !agentPanel) {
     return false;
   }
 
@@ -98,68 +96,22 @@ function installAgentFollow(): boolean {
 
   const indicator = document.createElement('span');
   indicator.className = 'agent-live-follow-indicator';
-  indicator.textContent = '代码页跟随';
+  indicator.textContent = '机器人跟随代码';
   indicator.hidden = true;
 
   const context =
     agentPanel.querySelector<HTMLElement>('.agent-context');
   context?.append(indicator);
 
-  const overlay = document.createElement('div');
-  overlay.className = 'agent-live-change';
-  overlay.hidden = true;
-  overlay.innerHTML = `
-    <div class="agent-live-change-heading">
-      <strong data-agent-live-title>Agent 修改</strong>
-      <code data-agent-live-location></code>
-    </div>
-    <div class="agent-live-change-diff">
-      <pre class="agent-live-change-old" data-agent-live-old></pre>
-      <pre class="agent-live-change-new" data-agent-live-new></pre>
-    </div>
-  `;
-  editorStage.append(overlay);
-
-  const title =
-    overlay.querySelector<HTMLElement>(
-      '[data-agent-live-title]',
-    );
-  const location =
-    overlay.querySelector<HTMLElement>(
-      '[data-agent-live-location]',
-    );
-  const oldPreview =
-    overlay.querySelector<HTMLPreElement>(
-      '[data-agent-live-old]',
-    );
-  const newPreview =
-    overlay.querySelector<HTMLPreElement>(
-      '[data-agent-live-new]',
-    );
-
-  if (!title || !location || !oldPreview || !newPreview) {
-    overlay.remove();
-    indicator.remove();
-    delete document.documentElement.dataset.agentLiveFollow;
-    return false;
-  }
-
   const ui = {
     api,
-    editorStage,
     indicator,
-    overlay,
-    title,
-    location,
-    oldPreview,
-    newPreview,
   };
 
   let following = false;
   let starting = false;
   let bypassNextSubmit = false;
   let queue: Promise<void> = Promise.resolve();
-  let hideTimer = 0;
 
   async function startFollowing(): Promise<void> {
     if (following || starting || !isRealProjectOpen()) {
@@ -172,7 +124,7 @@ function installAgentFollow(): boolean {
       following = true;
       ui.indicator.hidden = false;
       ui.indicator.title =
-        `已缓存 ${result.cachedFiles} 个文本文件，Agent 写入时自动跳转`;
+        `已缓存 ${result.cachedFiles} 个文本文件；真实写入时机器人会跳到修改位置`;
     } catch (error) {
       const message =
         error instanceof Error
@@ -200,44 +152,9 @@ function installAgentFollow(): boolean {
     ui.indicator.hidden = true;
   }
 
-  function showChange(change: AgentFileChange): void {
-    if (hideTimer) {
-      window.clearTimeout(hideTimer);
-    }
-
-    ui.overlay.dataset.kind = change.type;
-    ui.title.textContent =
-      change.type === 'created'
-        ? 'Agent 新建'
-        : change.type === 'deleted'
-          ? 'Agent 删除'
-          : 'Agent 修改';
-    ui.location.textContent =
-      `${change.path}:${change.line}`;
-
-    ui.oldPreview.textContent = change.oldPreview
-      ? `- ${change.oldPreview}`
-      : '- （无旧内容）';
-    ui.newPreview.textContent = change.newPreview
-      ? `+ ${change.newPreview}`
-      : '+ （无新内容）';
-
-    ui.oldPreview.hidden =
-      change.type === 'created';
-    ui.newPreview.hidden =
-      change.type === 'deleted';
-    ui.overlay.hidden = false;
-
-    hideTimer = window.setTimeout(() => {
-      ui.overlay.hidden = true;
-    }, 2400);
-  }
-
-  async function refreshAndJump(
+  async function refreshAndPresent(
     change: AgentFileChange,
   ): Promise<void> {
-    showChange(change);
-
     const snapshot = await ui.api.restoreProject();
     if (!snapshot) {
       return;
@@ -258,7 +175,7 @@ function installAgentFollow(): boolean {
         }),
       );
       setTutorStatus(`Agent 删除 · ${change.path}`);
-      await delay(320);
+      await delay(260);
       return;
     }
 
@@ -266,6 +183,7 @@ function installAgentFollow(): boolean {
       return;
     }
 
+    // 先让 Explorer / 项目文件列表拿到磁盘上的最新状态。
     window.dispatchEvent(
       new CustomEvent('android-project-snapshot', {
         detail: {
@@ -277,31 +195,35 @@ function installAgentFollow(): boolean {
       }),
     );
 
-    await delay(110);
+    await delay(90);
 
+    // 真正的代码定位、红色删除/绿色新增和机器人移动，
+    // 统一交给现有 CharacterController 处理。
     window.dispatchEvent(
-      new CustomEvent('ai-ide-reader-jump-request', {
+      new CustomEvent('ai-ide-agent-edit-focus', {
         detail: {
+          type: change.type,
           filePath: change.path,
           line: Math.max(1, change.line),
-          column: 1,
-          source: 'coding-agent-live-follow',
+          endLine: Math.max(change.line, change.endLine),
+          oldPreview: change.oldPreview,
+          newPreview: change.newPreview,
         },
       }),
     );
 
     setTutorStatus(
-      `Agent ${change.type === 'created' ? '新建' : '修改'} · ${change.path}:${change.line}`,
+      `🤖 Agent 修改 · ${change.path}:${change.line}`,
     );
 
-    // Give the user a short visual dwell before following the next rapid edit.
-    await delay(360);
+    // 不让磁盘短时间连续写入把观看顺序完全压扁。
+    await delay(220);
   }
 
   const disposeChanges = ui.api.onAgentFileChange(
     (change) => {
       queue = queue
-        .then(() => refreshAndJump(change))
+        .then(() => refreshAndPresent(change))
         .catch((error) => {
           const message =
             error instanceof Error
@@ -325,10 +247,12 @@ function installAgentFollow(): boolean {
     if (event.type === 'done' || event.type === 'error') {
       window.setTimeout(() => {
         void stopFollowing();
-      }, 700);
+      }, 900);
     }
   });
 
+  // Capture submit before agent_panel.ts so the filesystem snapshot exists
+  // before the Agent is allowed to perform its first write.
   document.addEventListener(
     'submit',
     (event) => {
