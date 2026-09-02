@@ -100,6 +100,19 @@ contextBridge.exposeInMainWorld('tutorIde', {
     ipcRenderer.on('agent:event', wrapped);
     return () => ipcRenderer.removeListener('agent:event', wrapped);
   },
+  startAgentFollow: () => ipcRenderer.invoke(
+    'agent-follow:start',
+    requireProjectRoot(),
+  ),
+  stopAgentFollow: () => ipcRenderer.invoke('agent-follow:stop'),
+  onAgentFileChange: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('agent-follow:file-change', wrapped);
+    return () => ipcRenderer.removeListener(
+      'agent-follow:file-change',
+      wrapped,
+    );
+  },
   watchProjectFile: (relativePath) => ipcRenderer.invoke('project:watch-file', relativePath),
   unwatchProjectFile: () => ipcRenderer.invoke('project:unwatch-file'),
   onProjectFileChanged: (listener) => {
@@ -116,7 +129,7 @@ contextBridge.exposeInMainWorld('tutorIde', {
   findDartSemanticTargets: (focus) => ipcRenderer.invoke('semantic:dart-targets', focus),
   getAppState: () => ipcRenderer.invoke('app:get-state'),
   updateVoiceState: (voiceState) => ipcRenderer.invoke('app:update-voice-state', voiceState),
-  updateAppearanceState: (appearance) => ipcRenderer.invoke('app:update-appearance-state', appearance),
+  updateAppearanceState: (appearanceState) => ipcRenderer.invoke('app:update-appearance-state', appearanceState),
   chooseAppearanceBackground: () => ipcRenderer.invoke('appearance:choose-background'),
   getAppearanceBackground: () => ipcRenderer.invoke('appearance:get-background'),
   clearAppearanceBackground: () => ipcRenderer.invoke('appearance:clear-background'),
