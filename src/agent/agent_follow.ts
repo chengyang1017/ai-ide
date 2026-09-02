@@ -63,6 +63,13 @@ function isRealProjectOpen(): boolean {
     ?.trim() === '真实项目';
 }
 
+function activeFilePath(): string {
+  return document
+    .querySelector<HTMLElement>('#active-file')
+    ?.textContent
+    ?.trim() ?? '';
+}
+
 function setTutorStatus(message: string): void {
   const status =
     document.querySelector<HTMLElement>('#tutor-status');
@@ -75,6 +82,38 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds);
   });
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+async function waitForActiveFile(
+  path: string,
+  timeoutMs = 3500,
+): Promise<boolean> {
+  if (activeFilePath() === path) {
+    // The text label changes at the end of openRealProjectFile(). Give Monaco
+    // two paints so its model/layout and tutor placement are also settled.
+    await nextFrame();
+    await nextFrame();
+    return true;
+  }
+
+  const startedAt = performance.now();
+
+  while (performance.now() - startedAt < timeoutMs) {
+    await delay(30);
+    if (activeFilePath() === path) {
+      await nextFrame();
+      await nextFrame();
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function installAgentFollow(): boolean {
@@ -152,6 +191,30 @@ function installAgentFollow(): boolean {
     ui.indicator.hidden = true;
   }
 
+  async function ensureEditorIsOnChange(
+    change: AgentFileChange,
+  ): Promise<boolean> {
+    if (await waitForActiveFile(change.path)) {
+      return true;
+    }
+
+    // Snapshot handlers are async event listeners. If a slow disk/code-note
+    // operation delayed opening the file, explicitly reuse the IDE's normal
+    // jump route and wait for the real Monaco file to become active.
+    window.dispatchEvent(
+      new CustomEvent('ai-ide-reader-jump-request', {
+        detail: {
+          filePath: change.path,
+          line: Math.max(1, change.line),
+          column: 1,
+          source: 'coding-agent-live-follow-retry',
+        },
+      }),
+    );
+
+    return waitForActiveFile(change.path, 2500);
+  }
+
   async function refreshAndPresent(
     change: AgentFileChange,
   ): Promise<void> {
@@ -175,7 +238,7 @@ function installAgentFollow(): boolean {
         }),
       );
       setTutorStatus(`Agent 删除 · ${change.path}`);
-      await delay(260);
+      await delay(500);
       return;
     }
 
@@ -183,7 +246,8 @@ function installAgentFollow(): boolean {
       return;
     }
 
-    // 先让 Explorer / 项目文件列表拿到磁盘上的最新状态。
+    // First refresh Explorer and ask the normal project loader to open the
+    // exact file that was really changed on disk.
     window.dispatchEvent(
       new CustomEvent('android-project-snapshot', {
         detail: {
@@ -195,10 +259,16 @@ function installAgentFollow(): boolean {
       }),
     );
 
-    await delay(90);
+    const editorReady = await ensureEditorIsOnChange(change);
+    if (!editorReady) {
+      setTutorStatus(
+        `Agent 已修改 ${change.path}:${change.line}，但代码页未能及时完成定位`,
+      );
+      return;
+    }
 
-    // 真正的代码定位、红色删除/绿色新增和机器人移动，
-    // 统一交给现有 CharacterController 处理。
+    // Only after the target file is the real active Monaco model do we let
+    // CharacterController show the original tutor robot and inline diff.
     window.dispatchEvent(
       new CustomEvent('ai-ide-agent-edit-focus', {
         detail: {
@@ -213,11 +283,12 @@ function installAgentFollow(): boolean {
     );
 
     setTutorStatus(
-      `🤖 Agent 修改 · ${change.path}:${change.line}`,
+      `🤖 Agent 正在展示修改 · ${change.path}:${change.line}`,
     );
 
-    // 不让磁盘短时间连续写入把观看顺序完全压扁。
-    await delay(220);
+    // Deliberately slow the first usable version down: the user asked to
+    // watch the robot and actual Monaco edit instead of seeing a quick flash.
+    await delay(1500);
   }
 
   const disposeChanges = ui.api.onAgentFileChange(
@@ -247,7 +318,7 @@ function installAgentFollow(): boolean {
     if (event.type === 'done' || event.type === 'error') {
       window.setTimeout(() => {
         void stopFollowing();
-      }, 900);
+      }, 1800);
     }
   });
 
