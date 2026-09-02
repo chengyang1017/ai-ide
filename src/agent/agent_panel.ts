@@ -215,6 +215,8 @@ function installAgentPanel(): boolean {
   }
 
   const ui = {
+    api,
+    workspace,
     toggleButton,
     closeButton,
     stateLabel,
@@ -239,7 +241,7 @@ function installAgentPanel(): boolean {
   function setVisible(nextVisible: boolean): void {
     visible = nextVisible;
     panel.hidden = !nextVisible;
-    workspace.dataset.agentOpen = String(nextVisible);
+    ui.workspace.dataset.agentOpen = String(nextVisible);
     ui.toggleButton.dataset.active = String(nextVisible);
     updateContext();
 
@@ -314,7 +316,7 @@ function installAgentPanel(): boolean {
       return;
     }
 
-    const snapshot = await api.restoreProject();
+    const snapshot = await ui.api.restoreProject();
     if (!snapshot) {
       return;
     }
@@ -336,7 +338,7 @@ function installAgentPanel(): boolean {
     );
   }
 
-  const disposeAgentEvents = api.onAgentEvent(
+  const disposeAgentEvents = ui.api.onAgentEvent(
     (event) => {
       if (
         currentRunId
@@ -385,7 +387,7 @@ function installAgentPanel(): boolean {
       return;
     }
 
-    if (!(await api.hasOpenAiKey())) {
+    if (!(await ui.api.hasOpenAiKey())) {
       appendLog(
         'error',
         '还没有 OpenAI API Key，请先点击顶部 Key 设置。',
@@ -400,7 +402,7 @@ function installAgentPanel(): boolean {
     setTutorStatus('Agent 正在处理项目…');
 
     try {
-      const result = await api.runAgent({
+      const result = await ui.api.runAgent({
         prompt: task,
         activeFile: currentActiveFile(),
       });
@@ -450,7 +452,7 @@ function installAgentPanel(): boolean {
     }
   });
   ui.stopButton.addEventListener('click', () => {
-    void api.cancelAgent();
+    void ui.api.cancelAgent();
     ui.stateLabel.textContent = '正在停止…';
   });
 
@@ -490,7 +492,7 @@ function installAgentPanel(): boolean {
     () => {
       disposeAgentEvents();
       if (running) {
-        void api.cancelAgent();
+        void ui.api.cancelAgent();
       }
     },
     { once: true },
