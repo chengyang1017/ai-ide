@@ -2,6 +2,14 @@ import './file_manager_create_dialog.css';
 
 type CreateKind = 'file' | 'directory';
 
+type ProjectSnapshot = {
+  rootPath: string;
+  projectName: string;
+  files: string[];
+  directories?: string[];
+  lastOpenFile?: string;
+};
+
 type CreateBridge = {
   createProjectFile?: (
     relativePath: string,
@@ -9,14 +17,8 @@ type CreateBridge = {
   createProjectDirectory?: (
     relativePath: string,
   ) => Promise<{ path: string }>;
+  restoreProject?: () => Promise<ProjectSnapshot | null>;
 };
-
-const OPEN_AFTER_RELOAD_KEY =
-  'ai-code-tutor.file-manager.open-after-reload';
-const SELECT_AFTER_RELOAD_KEY =
-  'ai-code-tutor.file-manager.select-after-reload';
-const FLASH_AFTER_RELOAD_KEY =
-  'ai-code-tutor.file-manager.flash-after-reload';
 
 function bridge(): CreateBridge | null {
   const api = (
@@ -28,6 +30,7 @@ function bridge(): CreateBridge | null {
   if (
     typeof api?.createProjectFile !== 'function'
       || typeof api.createProjectDirectory !== 'function'
+      || typeof api.restoreProject !== 'function'
   ) {
     return null;
   }
@@ -127,6 +130,60 @@ function closeDialog(): void {
   )?.remove();
 }
 
+function visibleDirectoryPaths(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '.directory-item[data-directory-path]',
+    ),
+  )
+    .map(
+      (element) =>
+        normalizeRelativePath(
+          element.dataset.directoryPath ?? '',
+        ),
+    )
+    .filter(Boolean);
+}
+
+async function refreshExplorerAfterCreate(
+  api: CreateBridge,
+  kind: CreateKind,
+  relativePath: string,
+  message: string,
+): Promise<void> {
+  const snapshot = await api.restoreProject?.();
+  if (!snapshot) {
+    throw new Error('项目刷新失败，请重新打开项目。');
+  }
+
+  const directories = new Set<string>([
+    ...(snapshot.directories ?? []),
+    ...visibleDirectoryPaths(),
+  ]);
+
+  if (kind === 'directory') {
+    directories.add(relativePath);
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(
+      'android-project-snapshot',
+      {
+        detail: {
+          ...snapshot,
+          directories: Array.from(directories),
+          preferredFile:
+            kind === 'file'
+              && snapshot.files.includes(relativePath)
+              ? relativePath
+              : undefined,
+          message,
+        },
+      },
+    ),
+  );
+}
+
 function showCreateDialog(kind: CreateKind): void {
   closeDialog();
 
@@ -199,25 +256,23 @@ function showCreateDialog(kind: CreateKind): void {
     try {
       if (kind === 'file') {
         await api.createProjectFile!(relativePath);
-        sessionStorage.setItem(
-          OPEN_AFTER_RELOAD_KEY,
-          relativePath,
-        );
       } else {
         await api.createProjectDirectory!(
           relativePath,
         );
-        sessionStorage.setItem(
-          SELECT_AFTER_RELOAD_KEY,
-          relativePath,
-        );
       }
 
-      sessionStorage.setItem(
-        FLASH_AFTER_RELOAD_KEY,
-        `✓ ${label}成功 · ${relativePath}`,
+      const successMessage =
+        `✓ ${label}成功 · ${relativePath}`;
+
+      closeDialog();
+      await refreshExplorerAfterCreate(
+        api,
+        kind,
+        relativePath,
+        successMessage,
       );
-      window.location.reload();
+      setStatus(successMessage);
     } catch (caught) {
       const message = caught instanceof Error
         ? caught.message
