@@ -95,8 +95,6 @@ async function waitForActiveFile(
   timeoutMs = 3500,
 ): Promise<boolean> {
   if (activeFilePath() === path) {
-    // The text label changes at the end of openRealProjectFile(). Give Monaco
-    // two paints so its model/layout and tutor placement are also settled.
     await nextFrame();
     await nextFrame();
     return true;
@@ -114,6 +112,56 @@ async function waitForActiveFile(
   }
 
   return false;
+}
+
+function robotPresentationVisible(): boolean {
+  const character =
+    document.querySelector<HTMLElement>('#tutor-character');
+
+  const robotVisible = Boolean(
+    character
+      && !character.classList.contains('offscreen'),
+  );
+
+  const inlineDiffVisible = Boolean(
+    document.querySelector(
+      '.monaco-editor .agent-edit-added-line, .agent-edit-deleted-zone',
+    ),
+  );
+
+  return robotVisible && inlineDiffVisible;
+}
+
+async function waitForRobotPresentation(
+  timeoutMs = 900,
+): Promise<boolean> {
+  const startedAt = performance.now();
+
+  while (performance.now() - startedAt < timeoutMs) {
+    if (robotPresentationVisible()) {
+      return true;
+    }
+    await delay(40);
+  }
+
+  return robotPresentationVisible();
+}
+
+function dispatchAgentEditFocus(
+  change: AgentFileChange,
+): void {
+  window.dispatchEvent(
+    new CustomEvent('ai-ide-agent-edit-focus', {
+      detail: {
+        type: change.type,
+        filePath: change.path,
+        line: Math.max(1, change.line),
+        endLine: Math.max(change.line, change.endLine),
+        oldPreview: change.oldPreview,
+        newPreview: change.newPreview,
+      },
+    }),
+  );
 }
 
 function installAgentFollow(): boolean {
@@ -198,9 +246,6 @@ function installAgentFollow(): boolean {
       return true;
     }
 
-    // Snapshot handlers are async event listeners. If a slow disk/code-note
-    // operation delayed opening the file, explicitly reuse the IDE's normal
-    // jump route and wait for the real Monaco file to become active.
     window.dispatchEvent(
       new CustomEvent('ai-ide-reader-jump-request', {
         detail: {
@@ -213,6 +258,27 @@ function installAgentFollow(): boolean {
     );
 
     return waitForActiveFile(change.path, 2500);
+  }
+
+  async function presentRobotAndInlineDiff(
+    change: AgentFileChange,
+  ): Promise<boolean> {
+    dispatchAgentEditFocus(change);
+
+    if (await waitForRobotPresentation()) {
+      return true;
+    }
+
+    // A tutor animation or an overlapping project refresh may have cancelled
+    // the first move. Retry once after Monaco has another pair of paint frames.
+    setTutorStatus(
+      `🤖 正在重新定位机器人 · ${change.path}:${change.line}`,
+    );
+    await nextFrame();
+    await nextFrame();
+    dispatchAgentEditFocus(change);
+
+    return waitForRobotPresentation(1200);
   }
 
   async function refreshAndPresent(
@@ -246,8 +312,6 @@ function installAgentFollow(): boolean {
       return;
     }
 
-    // First refresh Explorer and ask the normal project loader to open the
-    // exact file that was really changed on disk.
     window.dispatchEvent(
       new CustomEvent('android-project-snapshot', {
         detail: {
@@ -267,27 +331,22 @@ function installAgentFollow(): boolean {
       return;
     }
 
-    // Only after the target file is the real active Monaco model do we let
-    // CharacterController show the original tutor robot and inline diff.
-    window.dispatchEvent(
-      new CustomEvent('ai-ide-agent-edit-focus', {
-        detail: {
-          type: change.type,
-          filePath: change.path,
-          line: Math.max(1, change.line),
-          endLine: Math.max(change.line, change.endLine),
-          oldPreview: change.oldPreview,
-          newPreview: change.newPreview,
-        },
-      }),
-    );
+    const presented =
+      await presentRobotAndInlineDiff(change);
+
+    if (!presented) {
+      setTutorStatus(
+        `⚠ Agent 已修改 ${change.path}:${change.line}，但机器人/Monaco 删改展示未启动`,
+      );
+      await delay(900);
+      return;
+    }
 
     setTutorStatus(
       `🤖 Agent 正在展示修改 · ${change.path}:${change.line}`,
     );
 
-    // Deliberately slow the first usable version down: the user asked to
-    // watch the robot and actual Monaco edit instead of seeing a quick flash.
+    // Keep each real edit on screen long enough to watch before the next one.
     await delay(1500);
   }
 
@@ -322,8 +381,6 @@ function installAgentFollow(): boolean {
     }
   });
 
-  // Capture submit before agent_panel.ts so the filesystem snapshot exists
-  // before the Agent is allowed to perform its first write.
   document.addEventListener(
     'submit',
     (event) => {
