@@ -89,6 +89,17 @@ contextBridge.exposeInMainWorld('tutorIde', {
     ipcRenderer.on('terminal:exit', wrapped);
     return () => ipcRenderer.removeListener('terminal:exit', wrapped);
   },
+  runAgent: (request) => ipcRenderer.invoke(
+    'agent:run',
+    requireProjectRoot(),
+    request,
+  ),
+  cancelAgent: () => ipcRenderer.invoke('agent:cancel'),
+  onAgentEvent: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('agent:event', wrapped);
+    return () => ipcRenderer.removeListener('agent:event', wrapped);
+  },
   watchProjectFile: (relativePath) => ipcRenderer.invoke('project:watch-file', relativePath),
   unwatchProjectFile: () => ipcRenderer.invoke('project:unwatch-file'),
   onProjectFileChanged: (listener) => {
