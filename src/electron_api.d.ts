@@ -19,7 +19,6 @@ export interface PersistedVoiceState {
   rate: number;
 }
 
-
 export interface AppearanceState {
   color: string;
   backgroundMode: 'solid' | 'gradient';
@@ -84,6 +83,23 @@ declare global {
       writeProjectFile(relativePath: string, content: string): Promise<{
         path: string;
         bytes: number;
+      }>;
+      createProjectFile(relativePath: string): Promise<{
+        path: string;
+      }>;
+      createProjectDirectory(relativePath: string): Promise<{
+        path: string;
+      }>;
+      moveProjectEntry(
+        sourceRelativePath: string,
+        targetDirectoryRelativePath: string,
+      ): Promise<{
+        from: string;
+        to: string;
+      }>;
+      deleteProjectEntry(relativePath: string): Promise<{
+        path: string;
+        type: 'file' | 'directory';
       }>;
       watchProjectFile(relativePath: string): Promise<{ path: string }>;
       unwatchProjectFile(): Promise<boolean>;
