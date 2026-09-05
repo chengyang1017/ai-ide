@@ -9,7 +9,39 @@
 }
 
 .workspace[data-agent-open="true"] {
-  grid-template-columns: 230px minmax(0, 1fr) minmax(320px, 380px);
+  grid-template-columns:
+    var(--sidebar-width)
+    var(--sidebar-resizer-width)
+    minmax(0, 1fr)
+    minmax(320px, 380px);
+
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/*
+ * 明确固定四个 workspace 子元素的位置，
+ * 防止以后再加入面板时 CSS Grid 自动换行。
+ */
+.workspace[data-agent-open="true"] > .sidebar {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.workspace[data-agent-open="true"] > .sidebar-resizer {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.workspace[data-agent-open="true"] > .editor-pane {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace[data-agent-open="true"] > .agent-panel {
+  grid-column: 4;
+  grid-row: 1;
 }
 
 .agent-panel {

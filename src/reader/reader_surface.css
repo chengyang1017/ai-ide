@@ -45,6 +45,24 @@
 }
 
 .reader-surface {
+  /* 如果阅读模式比编辑模式偏右 1px：
+
+  --reader-x-nudge: -1px;
+
+  如果偏左：
+
+  --reader-x-nudge: 1px;
+
+  如果阅读模式比编辑模式偏下 1px：
+
+  --reader-y-nudge: -1px;
+
+  如果偏上：
+
+  --reader-y-nudge: 1px; */
+
+  --reader-x-nudge: 1px;
+  --reader-y-nudge: 1px;
   position: absolute;
   inset: 0;
   z-index: 12;
@@ -234,6 +252,15 @@
     padding-right: 32px;
     font-size: var(--code-font-size);
     line-height: var(--code-line-height);
+    position: relative;
+
+    /*
+    * Reader-only final pixel calibration.
+    * 不参与 scrollTop / 行号计算，
+    * 只修正视觉上的 1px 级误差。
+    */
+    left: var(--reader-x-nudge, 0px);
+    top: var(--reader-y-nudge, 0px);
   }
 
   .reader-code-line {

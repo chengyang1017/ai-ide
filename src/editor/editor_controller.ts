@@ -172,13 +172,21 @@ export class EditorController {
         verticalScrollbarSize: 12,
         useShadows: false,
       },
-      smoothScrolling: true,
+      smoothScrolling: false,
       scrollBeyondLastLine: false,
-      // 使用 Monaco 原生 Sticky Scroll 保留 class / method 上下文。
-      // 背景由自适应主题提供不透明底色，避免滚动正文从下面穿透。
+      /*
+      * Reader 没有 Sticky Scroll。
+      *
+      * 如果 Editor 开启 sticky header，
+      * 即使 scrollTop 完全相同，
+      * 可见代码也会被顶部 sticky lines
+      * 向下顶 24 / 48 / 72px。
+      *
+      * 要求 Reader / Editor 无缝切换，
+      * 这里必须关闭。
+      */
       stickyScroll: {
-        enabled: true,
-        maxLineCount: 3,
+        enabled: false,
       },
       padding: {
         top: codeLayout.topPadding,
@@ -187,7 +195,22 @@ export class EditorController {
       glyphMargin: false,
       folding: false,
       lineNumbers: 'on',
-      lineNumbersMinChars: 1,
+
+      /*
+      * 固定 Monaco gutter 的最小数字宽度。
+      *
+      * 否则：
+      * 9 行文件
+      * 99 行文件
+      * 999 行文件
+      *
+      * Monaco 的 contentLeft 会变化，
+      * 而 Reader gutter 永远是固定 56px。
+      *
+      * 这就是切换时正文左右跳的来源之一。
+      */
+      lineNumbersMinChars: 4,
+
       lineDecorationsWidth: 0,
       renderLineHighlight: 'none',
       cursorSmoothCaretAnimation: 'on',
