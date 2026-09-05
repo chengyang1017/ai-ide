@@ -1360,6 +1360,24 @@ export function installReaderSurface(
         : 24;
     };
 
+  const codeTopPadding =
+    (): number => {
+      const value =
+        Number.parseFloat(
+          getComputedStyle(
+            document.documentElement,
+          )
+            .getPropertyValue(
+              '--code-top-padding',
+            ),
+        );
+
+      return Number.isFinite(value)
+        && value >= 0
+        ? value
+        : 42;
+    };
+
   const currentViewport =
     (): ReaderViewportDetail => {
       const count =
@@ -1373,23 +1391,44 @@ export function installReaderSurface(
       const height =
         lineHeight();
 
+      const topPadding =
+        codeTopPadding();
+
+      const contentScrollTop =
+        Math.max(
+          0,
+          scroll.scrollTop
+            - topPadding,
+        );
+
       const startLine =
         Math.max(
           1,
           Math.min(
             count,
             Math.floor(
-              scroll.scrollTop
+              contentScrollTop
                 / height,
             ) + 1,
           ),
+        );
+
+      const topInset =
+        Math.max(
+          0,
+          topPadding
+            - scroll.scrollTop,
         );
 
       const visibleLines =
         Math.max(
           1,
           Math.ceil(
-            scroll.clientHeight
+            Math.max(
+              height,
+              scroll.clientHeight
+                - topInset,
+            )
               / height,
           ),
         );
@@ -1466,9 +1505,10 @@ export function installReaderSurface(
     scroll.scrollTop =
       Math.max(
         0,
-        (
-          safeLine - 1
-        ) * lineHeight(),
+        codeTopPadding()
+          + (
+            safeLine - 1
+          ) * lineHeight(),
       );
 
     scheduleViewportEvent();
@@ -1815,12 +1855,6 @@ export function installReaderSurface(
       effectiveMode
         === 'reader'
     ) {
-      const firstVisible =
-        editor
-          .getVisibleRanges()[0]
-          ?.startLineNumber
-          ?? 1;
-
       editorStage.dataset
         .editorSurface =
           'reader';
@@ -1828,14 +1862,6 @@ export function installReaderSurface(
       surface.hidden = false;
 
       await renderCurrentFile();
-
-      requestAnimationFrame(
-        () => {
-          revealReaderLine(
-            firstVisible,
-          );
-        },
-      );
 
       if (announce) {
         setStatus(
@@ -1848,10 +1874,6 @@ export function installReaderSurface(
       return;
     }
 
-    const readerLine =
-      currentViewport()
-        .startLine;
-
     editorStage.dataset
       .editorSurface =
         'editor';
@@ -1862,9 +1884,6 @@ export function installReaderSurface(
     requestAnimationFrame(
       () => {
         editor.layout();
-        editor.revealLineNearTop(
-          readerLine,
-        );
       },
     );
 
