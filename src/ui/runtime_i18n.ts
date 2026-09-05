@@ -263,6 +263,7 @@ const exactTranslations = new Map<string, string>([
   ['✓ 已复制', '✓ Copied'],
   ['AI 导师', 'AI Tutor'],
   ['更多工具', 'More Tools'],
+  ['随时问老师…', 'Ask the AI tutor anytime…'],
 ]);
 
 const skipSelector = [
