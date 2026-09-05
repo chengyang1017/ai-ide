@@ -54,6 +54,7 @@ app.innerHTML = `
               <span>语言</span>
               <select id="voice-language" class="voice-language" title="语音语言">
                 <option value="zh-CN">中文（简体）</option>
+                <option value="en-US">English (US)</option>
               </select>
             </label>
             <label>

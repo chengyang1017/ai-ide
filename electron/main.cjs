@@ -1187,7 +1187,7 @@ async function requestSemanticTutorPlan({ focus, mode, symbolName, candidates })
         input: [
           {
             role: 'system',
-            content: SEMANTIC_AI_TUTOR_SYSTEM_PROMPT,
+            content: localizeTutorPrompt(SEMANTIC_AI_TUTOR_SYSTEM_PROMPT),
           },
           {
             role: 'user',
@@ -1289,7 +1289,7 @@ async function requestCurrentCodeExplanation(context) {
         input: [
           {
             role: 'system',
-            content: CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT,
+            content: localizeTutorPrompt(CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT),
           },
           {
             role: 'user',
@@ -1360,7 +1360,7 @@ async function requestTutorPlan(focus, candidates) {
         input: [
           {
             role: 'system',
-            content: AI_TUTOR_SYSTEM_PROMPT,
+            content: localizeTutorPrompt(AI_TUTOR_SYSTEM_PROMPT),
           },
           {
             role: 'user',
@@ -1452,11 +1452,22 @@ function validateAiPlan(plan, candidates) {
   }
 }
 
+function localizeTutorPrompt(prompt) {
+  const language = String(persistentState.voice?.language || 'zh-CN').toLowerCase();
+  if (!language.startsWith('en')) {
+    return prompt;
+  }
+
+  return `${prompt}
+
+Language override: Respond only in clear, natural English. All learner-visible explanations, speech, summaries, and teaching text must be English. Keep code identifiers unchanged.`;
+}
+
 const CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT = `你是住在代码编辑器里的 AI 编程导师。
 你会收到 IDE 在这一刻真实捕获的编辑器上下文，包括当前文件、光标、选区、标识符、附近代码，以及是否存在未保存修改。
 
 要求：
-1. 使用简体中文，直接回答“用户现在正在看的代码在做什么”。
+1. 默认使用简体中文；如果提示末尾附加 Language override，则严格遵循 override 的语言。直接回答“用户现在正在看的代码在做什么”。
 2. 如果有选区，优先解释选区；没有选区时围绕光标所在行和当前标识符解释。
 3. 先讲功能，再讲关键语法、数据流或调用关系，不要只做逐字翻译。
 4. 未保存内容来自 Monaco 当前内存，应优先于你对磁盘文件的任何假设。
@@ -1468,7 +1479,7 @@ const SEMANTIC_AI_TUTOR_SYSTEM_PROMPT = `你是住在代码编辑器里的 AI �
 IDE 已经通过 Dart Analysis Server / LSP 得到了真实 Call Hierarchy。你的任务是把这些真实语义节点组织成适合学习的调用链，并让角色按顺序跨文件跳着讲。
 
 要求：
-1. 使用简体中文，像老师带学生读真实项目一样自然。
+1. 默认使用简体中文；如果提示末尾附加 Language override，则严格遵循 override 的语言。像老师带学生读真实项目一样自然。
 2. 只能选择提示中存在的 candidateId，绝对不能编造文件、行号、函数或调用关系。
 3. root 是用户当前函数；incomingCall 是上游调用者；outgoingCall 是下游被调用函数。
 4. 优先讲清“为什么从这里开始”“控制流/功能链怎么继续”“这个调用为什么重要”。
@@ -1483,7 +1494,7 @@ const AI_TUTOR_SYSTEM_PROMPT = `你是住在代码编辑器里的 AI 编程导�
 你的工作不是把所有搜索结果逐个念出来，而是从 IDE 已提供的真实候选代码位置中，规划一条适合学习者理解代码功能链的路线。
 
 要求：
-1. 使用简体中文，像老师带着学生读代码一样自然。
+1. 默认使用简体中文；如果提示末尾附加 Language override，则严格遵循 override 的语言。像老师带着学生读代码一样自然。
 2. 只能选择提示里存在的 candidateId，绝对不能编造文件、行号或候选 ID。
 3. 优先区分“定义在哪里”“在哪里被调用/使用”“数据流下一步去哪”“为什么这个位置重要”。
 4. 文本同名不代表语义相关；如果候选明显只是巧合同名，可以跳过。
