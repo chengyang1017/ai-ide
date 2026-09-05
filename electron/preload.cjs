@@ -1,13 +1,93 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+let activeProjectRoot = '';
+
+function isLocalProjectRoot(value) {
+  return typeof value === 'string'
+    && /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(value);
+}
+
+function rememberProjectSnapshot(snapshot) {
+  if (snapshot && typeof snapshot.rootPath === 'string') {
+    activeProjectRoot = isLocalProjectRoot(snapshot.rootPath)
+      ? snapshot.rootPath
+      : '';
+  }
+  return snapshot;
+}
+
+async function invokeProjectSnapshot(channel, ...args) {
+  const snapshot = await ipcRenderer.invoke(channel, ...args);
+  return rememberProjectSnapshot(snapshot);
+}
+
+function requireProjectRoot() {
+  if (!activeProjectRoot) {
+    throw new Error('请先打开一个本地真实项目');
+  }
+  return activeProjectRoot;
+}
+
 contextBridge.exposeInMainWorld('tutorIde', {
-  openProject: () => ipcRenderer.invoke('project:open'),
-  restoreProject: () => ipcRenderer.invoke('project:restore'),
-  openGitHubRepository: (url) => ipcRenderer.invoke('github:open-repository', url),
+  openProject: () => invokeProjectSnapshot('project:open'),
+  restoreProject: () => invokeProjectSnapshot('project:restore'),
+  openGitHubRepository: (url) => invokeProjectSnapshot('github:open-repository', url),
   readProjectFile: (relativePath) => ipcRenderer.invoke('project:read-file', relativePath),
   readProjectAsset: (relativePath) => ipcRenderer.invoke('project:read-asset', relativePath),
   openExternal: (url) => ipcRenderer.invoke('project:open-external', url),
   writeProjectFile: (relativePath, content) => ipcRenderer.invoke('project:write-file', relativePath, content),
+
+  createProjectFile: (relativePath) => ipcRenderer.invoke(
+    'project-files:create-file',
+    requireProjectRoot(),
+    relativePath,
+  ),
+  createProjectDirectory: (relativePath) => ipcRenderer.invoke(
+    'project-files:create-directory',
+    requireProjectRoot(),
+    relativePath,
+  ),
+  moveProjectEntry: (sourceRelativePath, targetDirectoryRelativePath) => ipcRenderer.invoke(
+    'project-files:move-entry',
+    requireProjectRoot(),
+    sourceRelativePath,
+    targetDirectoryRelativePath,
+  ),
+  deleteProjectEntry: (relativePath) => ipcRenderer.invoke(
+    'project-files:delete-entry',
+    requireProjectRoot(),
+    relativePath,
+  ),
+
+  startTerminal: () => ipcRenderer.invoke('terminal:start', requireProjectRoot()),
+  writeTerminal: (input) => ipcRenderer.invoke('terminal:write', input),
+  stopTerminal: () => ipcRenderer.invoke('terminal:stop'),
+  onTerminalData: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('terminal:data', wrapped);
+    return () => ipcRenderer.removeListener('terminal:data', wrapped);
+  },
+  onTerminalExit: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('terminal:exit', wrapped);
+    return () => ipcRenderer.removeListener('terminal:exit', wrapped);
+  },
+
+  runAgent: (request) => ipcRenderer.invoke('agent:run', requireProjectRoot(), request),
+  cancelAgent: () => ipcRenderer.invoke('agent:cancel'),
+  onAgentEvent: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('agent:event', wrapped);
+    return () => ipcRenderer.removeListener('agent:event', wrapped);
+  },
+  startAgentFollow: () => ipcRenderer.invoke('agent-follow:start', requireProjectRoot()),
+  stopAgentFollow: () => ipcRenderer.invoke('agent-follow:stop'),
+  onAgentFileChange: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('agent-follow:file-change', wrapped);
+    return () => ipcRenderer.removeListener('agent-follow:file-change', wrapped);
+  },
+
   watchProjectFile: (relativePath) => ipcRenderer.invoke('project:watch-file', relativePath),
   unwatchProjectFile: () => ipcRenderer.invoke('project:unwatch-file'),
   onProjectFileChanged: (listener) => {
