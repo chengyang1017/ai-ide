@@ -1,0 +1,312 @@
+name: Fix UI language and note marker
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-ui-language-and-note-marker.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch UI language switch and note marker alignment
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          main_path = Path('src/main.ts')
+          main = main_path.read_text(encoding='utf-8')
+
+          old = '        <span id="tutor-status" class="tutor-status">等待打开项目</span>\n        <button id="voice-toggle" class="voice-button compact-button">🔊 语音</button>'
+          new = '        <span id="tutor-status" class="tutor-status">等待打开项目</span>\n        <label class="ui-language-switch" title="界面语言 / UI language">\n          <span aria-hidden="true">🌐</span>\n          <select id="ui-language" class="ui-language-select" aria-label="界面语言">\n            <option value="zh-CN">中文</option>\n            <option value="en-US">English</option>\n          </select>\n        </label>\n        <button id="voice-toggle" class="voice-button compact-button">🔊 语音</button>'
+          if old not in main:
+              raise SystemExit('titlebar language-switch anchor not found')
+          main = main.replace(old, new, 1)
+
+          old = "const voiceToggleButton = requireButton('voice-toggle');\nconst voiceLanguageSelect = requireSelect('voice-language');"
+          new = "const voiceToggleButton = requireButton('voice-toggle');\nconst uiLanguageSelect = requireSelect('ui-language');\nconst voiceLanguageSelect = requireSelect('voice-language');"
+          if old not in main:
+              raise SystemExit('ui language select ref anchor not found')
+          main = main.replace(old, new, 1)
+
+          anchor = "let preferredVoiceLanguage = 'zh-CN';\nlet preferredVoiceId = '';\nlet preferredVoiceRate = 1;\nlet voiceEnabledPreference = true;\n"
+          if anchor not in main:
+              raise SystemExit('voice preference anchor not found')
+
+          ui_lines = [
+              "type UiLanguage = 'zh-CN' | 'en-US';",
+              "const UI_LANGUAGE_STORAGE_KEY = 'code-tutor-ui-language';",
+              "let preferredUiLanguage: UiLanguage =",
+              "  window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY) === 'en-US'",
+              "    ? 'en-US'",
+              "    : 'zh-CN';",
+              "",
+              "function uiText(zh: string, en: string): string {",
+              "  return preferredUiLanguage === 'en-US' ? en : zh;",
+              "}",
+              "",
+              "function setUiText(selector: string, zh: string, en: string): void {",
+              "  const element = document.querySelector<HTMLElement>(selector);",
+              "  if (element) {",
+              "    element.textContent = uiText(zh, en);",
+              "  }",
+              "}",
+              "",
+              "function localizeVoiceUiMessage(message: string): string {",
+              "  const pairs: Array<[string, string]> = [",
+              "    ['等待讲解', 'Ready'],",
+              "    ['语音已关闭', 'Voice off'],",
+              "    ['正在朗读', 'Speaking'],",
+              "    ['语音已暂停', 'Paused'],",
+              "    ['继续朗读', 'Speaking'],",
+              "    ['等待下一段', 'Ready for next segment'],",
+              "    ['当前 Electron 环境不支持系统语音', 'System voice is unavailable in this Electron environment'],",
+              "    ['系统语音播放失败', 'System voice playback failed'],",
+              "  ];",
+              "  for (const [zh, en] of pairs) {",
+              "    if (message === zh || message === en) {",
+              "      return uiText(zh, en);",
+              "    }",
+              "  }",
+              "  return message;",
+              "}",
+              "",
+              "function applyUiLanguage(): void {",
+              "  document.documentElement.lang = preferredUiLanguage === 'en-US' ? 'en' : 'zh-CN';",
+              "  uiLanguageSelect.value = preferredUiLanguage;",
+              "  uiLanguageSelect.title = uiText('界面语言', 'UI language');",
+              "  uiLanguageSelect.setAttribute('aria-label', uiText('界面语言', 'UI language'));",
+              "",
+              "  setUiText('.brand small', 'Alpha 0.16 · 项目便签 + 外观 + Markdown 预览', 'Alpha 0.16 · Project Notes + Appearance + Markdown Preview');",
+              "",
+              "  const voiceSummary = document.querySelector<HTMLElement>('.toolbar-menu > summary');",
+              "  if (voiceSummary) {",
+              "    voiceSummary.textContent = uiText('⚙ 语音设置', '⚙ Voice Settings');",
+              "    voiceSummary.title = uiText('语音设置', 'Voice settings');",
+              "  }",
+              "  const voiceLabels = Array.from(document.querySelectorAll<HTMLElement>('.voice-settings-panel label > span'));",
+              "  if (voiceLabels[0]) voiceLabels[0].textContent = uiText('AI / 语音', 'AI / Voice');",
+              "  if (voiceLabels[1]) voiceLabels[1].textContent = uiText('声音', 'Voice');",
+              "  if (voiceLabels[2]) voiceLabels[2].textContent = uiText('语速', 'Speed');",
+              "  if (voiceSelect.options[0] && voiceSelect.options[0].value === '') {",
+              "    voiceSelect.options[0].textContent = uiText('自动选择声音', 'Auto-select voice');",
+              "  }",
+              "",
+              "  appearanceSettingsButton.textContent = uiText('◐ 外观', '◐ Appearance');",
+              "  openProjectButton.textContent = uiText('📂 打开项目', '📂 Open Project');",
+              "  jumpToCursorButton.textContent = uiText('🤖 跳到光标', '🤖 Jump to Cursor');",
+              "  findRelatedButton.textContent = findRelatedButton.textContent?.startsWith('■')",
+              "    ? uiText('■ 停止寻找', '■ Stop Search')",
+              "    : uiText('🧭 相关代码', '🧭 Related Code');",
+              "  semanticRelatedButton.textContent = semanticRelatedButton.textContent?.startsWith('■')",
+              "    ? uiText('■ 停止语义导航', '■ Stop Navigation')",
+              "    : uiText('🧠 Dart 调用', '🧠 Dart Calls');",
+              "  semanticAiTourButton.textContent = semanticAiTourButton.textContent?.startsWith('■')",
+              "    ? uiText('■ 停止 AI 调用链', '■ Stop AI Call Chain')",
+              "    : uiText('🧠✨ 理解函数', '🧠✨ Understand Function');",
+              "  explainCurrentCodeButton.textContent = explainCurrentCodeButton.textContent?.startsWith('■')",
+              "    ? uiText('■ 停止解释', '■ Stop Explanation')",
+              "    : uiText('✨ 解释这里', '✨ Explain Here');",
+              "  aiTourButton.textContent = aiTourButton.textContent?.startsWith('■')",
+              "    ? uiText('■ 停止 AI 老师', '■ Stop AI Tutor')",
+              "    : uiText('✨ 理解项目', '✨ Understand Project');",
+              "",
+              "  semanticAiModeSelect.title = uiText('AI 语义教学方向', 'AI semantic teaching direction');",
+              "  if (semanticAiModeSelect.options[0]) semanticAiModeSelect.options[0].textContent = uiText('完整功能链', 'Full Call Chain');",
+              "  if (semanticAiModeSelect.options[1]) semanticAiModeSelect.options[1].textContent = uiText('谁调用它', 'Who Calls It');",
+              "  if (semanticAiModeSelect.options[2]) semanticAiModeSelect.options[2].textContent = uiText('它调用谁', 'What It Calls');",
+              "",
+              "  setUiText('.sidebar-note p', '项目便签会跟随仓库共享；支持图片、外部点击自动收起、外观壁纸和 Markdown 实时预览。', 'Project notes travel with the repository; image notes, auto-collapse, custom appearance, and live Markdown preview are supported.');",
+              "",
+              "  const noteHint = document.querySelector<HTMLElement>('.code-note-hint');",
+              "  if (noteHint) {",
+              "    noteHint.textContent = uiText('📝 双位置便签', '📝 Dual-position Notes');",
+              "    noteHint.title = uiText('光标位置出现＋可添加代码内便签；行号旁也会出现＋，两种便签可以同时存在', 'Use + at the cursor for inline notes or + beside the line number for gutter notes. Both can coexist.');",
+              "  }",
+              "",
+              "  const externalLabel = externalChangeState.querySelector<HTMLElement>('span');",
+              "  if (externalLabel) externalLabel.textContent = uiText('⚠ 外部已修改', '⚠ Changed Externally');",
+              "  externalReloadButton.textContent = uiText('重新加载', 'Reload');",
+              "  externalKeepButton.textContent = uiText('保留本地', 'Keep Local');",
+              "  setUiText('[data-markdown-mode=\"edit\"]', '编辑', 'Edit');",
+              "  setUiText('[data-markdown-mode=\"split\"]', '分栏', 'Split');",
+              "  setUiText('[data-markdown-mode=\"preview\"]', '预览', 'Preview');",
+              "",
+              "  if (workspaceBadge.textContent === '真实项目' || workspaceBadge.textContent === 'Real Project') {",
+              "    workspaceBadge.textContent = uiText('真实项目', 'Real Project');",
+              "  } else {",
+              "    workspaceBadge.textContent = 'Demo';",
+              "  }",
+              "  if (projectRoot.textContent === '尚未打开真实项目' || projectRoot.textContent === 'No project opened') {",
+              "    projectRoot.textContent = uiText('尚未打开真实项目', 'No project opened');",
+              "  }",
+              "  if (tutorStatus.textContent === '等待打开项目' || tutorStatus.textContent === 'Waiting for a project') {",
+              "    tutorStatus.textContent = uiText('等待打开项目', 'Waiting for a project');",
+              "  }",
+              "",
+              "  const rawVoiceStatus = (voiceStatus.textContent ?? '').replace(/^(语音：|Voice:\\s*)/, '');",
+              "  voiceStatus.textContent = `${uiText('语音：', 'Voice: ')}${localizeVoiceUiMessage(rawVoiceStatus)}`;",
+              "  updateVoiceToggleLabel();",
+              "",
+              "  setUiText('#api-key-modal .api-key-dialog-header p', '使用系统安全存储加密后保存到本机；Windows 使用 Electron safeStorage，Android 使用 Android Keystore。', 'Stored locally with OS-backed secure encryption. Windows uses Electron safeStorage; Android uses Android Keystore.');",
+              "  apiKeyCloseButton.setAttribute('aria-label', uiText('关闭', 'Close'));",
+              "  apiKeyClearButton.textContent = uiText('清除已保存 Key', 'Clear Saved Key');",
+              "  apiKeyCancelButton.textContent = uiText('取消', 'Cancel');",
+              "  apiKeySaveButton.textContent = uiText('加密保存到本机', 'Save Securely');",
+              "",
+              "  setUiText('#appearance-title', '外观', 'Appearance');",
+              "  setUiText('#appearance-modal .settings-dialog-header p', '颜色、背景图片和代码可读性都保存在本机，不会污染项目。', 'Colors, backgrounds, and code readability settings stay on this device and do not modify the project.');",
+              "  appearanceCloseButton.setAttribute('aria-label', uiText('关闭', 'Close'));",
+              "  setUiText('#appearance-modal .appearance-background-section h3', '背景颜色', 'Background Color');",
+              "  setUiText('[data-background-mode=\"solid\"]', '纯色', 'Solid');",
+              "  setUiText('[data-background-mode=\"gradient\"]', '渐变', 'Gradient');",
+              "",
+              "  setUiText('.code-note-title-row strong', '📝 代码便签', '📝 Code Note');",
+              "  setUiText('.code-note-add-image', '＋ 图片', '＋ Image');",
+              "  setUiText('.code-note-media-hint', '可粘贴 / 拖入', 'Paste / drop');",
+              "  setUiText('.code-note-actions > span', '点到别处会自动保存并收起', 'Click elsewhere to auto-save and close');",
+              "  setUiText('.code-note-delete', '删除', 'Delete');",
+              "  setUiText('.code-note-save', '保存', 'Save');",
+              "  const noteTextarea = document.querySelector<HTMLTextAreaElement>('.code-note-textarea');",
+              "  if (noteTextarea) noteTextarea.placeholder = uiText('写下理解、TODO、问题……', 'Write an explanation, TODO, question…');",
+              "  const noteClose = document.querySelector<HTMLElement>('.code-note-close');",
+              "  if (noteClose) noteClose.title = uiText('关闭便签（Esc 放弃未保存修改）', 'Close note (Esc discards unsaved changes)');",
+              "  const noteLine = document.querySelector<HTMLElement>('.code-note-line');",
+              "  if (noteLine && noteLine.textContent) {",
+              "    const coordinate = noteLine.textContent.split(' · ')[0];",
+              "    noteLine.textContent = noteLine.textContent.includes(':C')",
+              "      ? `${coordinate} · ${uiText('代码中', 'inline')}`",
+              "      : `${coordinate} · ${uiText('行号旁', 'gutter')}`;",
+              "  }",
+              "}",
+          ]
+          main = main.replace(anchor, anchor + '\n' + '\n'.join(ui_lines) + '\n\n', 1)
+
+          old = "    voiceStatus.textContent = `语音：${message}`;"
+          new = "    voiceStatus.textContent = `${uiText('语音：', 'Voice: ')}${localizeVoiceUiMessage(message)}`;"
+          if old not in main:
+              raise SystemExit('voice status callback anchor not found')
+          main = main.replace(old, new, 1)
+
+          old = "function updateVoiceToggleLabel(): void {\n  voiceToggleButton.textContent = voiceEnabledPreference\n    ? '🔊 语音开启'\n    : '🔇 语音关闭';\n}"
+          new = "function updateVoiceToggleLabel(): void {\n  voiceToggleButton.textContent = voiceEnabledPreference\n    ? uiText('🔊 语音开启', '🔊 Voice On')\n    : uiText('🔇 语音关闭', '🔇 Voice Off');\n}"
+          if old not in main:
+              raise SystemExit('voice toggle label anchor not found')
+          main = main.replace(old, new, 1)
+
+          old = "function updateEditorSaveState(): void {\n  const dirty = isRealProject && editorController.isDirty();\n  editorTabDot.dataset.dirty = String(dirty);\n  editorSaveState.dataset.dirty = String(dirty);\n  editorSaveState.textContent = dirty ? '● 未保存 · Ctrl+S' : '✓ 已保存';\n}"
+          new = "function updateEditorSaveState(): void {\n  const dirty = isRealProject && editorController.isDirty();\n  editorTabDot.dataset.dirty = String(dirty);\n  editorSaveState.dataset.dirty = String(dirty);\n  editorSaveState.textContent = dirty\n    ? uiText('● 未保存 · Ctrl+S', '● Unsaved · Ctrl+S')\n    : uiText('✓ 已保存', '✓ Saved');\n}"
+          if old not in main:
+              raise SystemExit('editor save-state anchor not found')
+          main = main.replace(old, new, 1)
+
+          listener_anchor = "voiceLanguageSelect.addEventListener('change', () => {"
+          if listener_anchor not in main:
+              raise SystemExit('voice language listener anchor not found')
+          listener = "uiLanguageSelect.addEventListener('change', () => {\n  preferredUiLanguage = uiLanguageSelect.value === 'en-US' ? 'en-US' : 'zh-CN';\n  window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, preferredUiLanguage);\n  applyUiLanguage();\n  updateEditorSaveState();\n});\n\napplyUiLanguage();\n\n"
+          main = main.replace(listener_anchor, listener + listener_anchor, 1)
+
+          replacements = {
+              "findRelatedButton.textContent = '■ 停止寻找';": "findRelatedButton.textContent = uiText('■ 停止寻找', '■ Stop Search');",
+              "semanticRelatedButton.textContent = '■ 停止语义导航';": "semanticRelatedButton.textContent = uiText('■ 停止语义导航', '■ Stop Navigation');",
+              "semanticAiTourButton.textContent = '■ 停止 AI 调用链';": "semanticAiTourButton.textContent = uiText('■ 停止 AI 调用链', '■ Stop AI Call Chain');",
+              "explainCurrentCodeButton.textContent = '■ 停止解释';": "explainCurrentCodeButton.textContent = uiText('■ 停止解释', '■ Stop Explanation');",
+              "aiTourButton.textContent = '■ 停止 AI 老师';": "aiTourButton.textContent = uiText('■ 停止 AI 老师', '■ Stop AI Tutor');",
+              "findRelatedButton.textContent = '🧭 老师找相关代码';": "findRelatedButton.textContent = uiText('🧭 相关代码', '🧭 Related Code');",
+              "semanticRelatedButton.textContent = '🧠 Dart 语义调用';": "semanticRelatedButton.textContent = uiText('🧠 Dart 调用', '🧠 Dart Calls');",
+              "semanticAiTourButton.textContent = '🧠✨ AI 理解函数';": "semanticAiTourButton.textContent = uiText('🧠✨ 理解函数', '🧠✨ Understand Function');",
+              "aiTourButton.textContent = '✨ AI 老师理解项目';": "aiTourButton.textContent = uiText('✨ 理解项目', '✨ Understand Project');",
+              "explainCurrentCodeButton.textContent = '✨ 解释这里';": "explainCurrentCodeButton.textContent = uiText('✨ 解释这里', '✨ Explain Here');",
+              "workspaceBadge.textContent = '真实项目';": "workspaceBadge.textContent = uiText('真实项目', 'Real Project');",
+              "workspaceBadge.textContent =\n    '真实项目';": "workspaceBadge.textContent =\n    uiText('真实项目', 'Real Project');",
+              "editorSaveState.textContent = '保存中…';": "editorSaveState.textContent = uiText('保存中…', 'Saving…');",
+          }
+          for old_text, new_text in replacements.items():
+              main = main.replace(old_text, new_text)
+
+          main_path.write_text(main, encoding='utf-8')
+
+          styles_path = Path('src/styles.css')
+          styles = styles_path.read_text(encoding='utf-8')
+          marker = '/* Upwork UI language switch + Monaco inline note marker metric fix. */'
+          if marker not in styles:
+              styles += "\n\n" + marker + "\n" + "\n".join([
+                  ".ui-language-switch {",
+                  "  display: inline-flex;",
+                  "  align-items: center;",
+                  "  gap: 4px;",
+                  "  height: 30px;",
+                  "  padding: 0 5px 0 8px;",
+                  "  border: 1px solid #343945;",
+                  "  border-radius: 7px;",
+                  "  background: #20242c;",
+                  "  color: #d7dae0;",
+                  "  white-space: nowrap;",
+                  "}",
+                  "",
+                  ".ui-language-switch:hover {",
+                  "  background: #2a2f39;",
+                  "}",
+                  "",
+                  ".ui-language-select {",
+                  "  min-width: 66px;",
+                  "  border: 0;",
+                  "  outline: 0;",
+                  "  background: transparent;",
+                  "  color: inherit;",
+                  "  font: inherit;",
+                  "  font-size: 11px;",
+                  "  cursor: pointer;",
+                  "}",
+                  "",
+                  ".ui-language-select option {",
+                  "  background: #171a20;",
+                  "  color: #d7dae0;",
+                  "}",
+                  "",
+                  ".monaco-editor .code-note-injected-existing,",
+                  ".monaco-editor .code-note-injected-add {",
+                  "  font-family: var(--code-font-family) !important;",
+                  "  font-size: 12px !important;",
+                  "  line-height: 16px !important;",
+                  "  vertical-align: baseline !important;",
+                  "}",
+                  "",
+                  "@media (max-width: 1180px) {",
+                  "  .ui-language-switch {",
+                  "    padding-left: 6px;",
+                  "  }",
+                  "",
+                  "  .ui-language-select {",
+                  "    min-width: 58px;",
+                  "  }",
+                  "}",
+              ]) + "\n"
+          styles_path.write_text(styles, encoding='utf-8')
+          PY
+
+      - name: Verify patch
+        run: |
+          grep -F 'id="ui-language"' src/main.ts
+          grep -F 'function applyUiLanguage' src/main.ts
+          grep -F 'line-height: 16px !important' src/styles.css
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Commit patch and remove workflow
+        run: |
+          git rm .github/workflows/fix-ui-language-and-note-marker.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add switchable English UI and align note marker"
+          git push
