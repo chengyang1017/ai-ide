@@ -1,0 +1,81 @@
+.file-create-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.48);
+}
+
+.file-create-dialog {
+  width: min(420px, calc(100vw - 40px));
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: #20242c;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  color: #f3f5f7;
+}
+
+.file-create-dialog h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.file-create-dialog p {
+  margin: 0 0 12px;
+  color: rgba(243, 245, 247, 0.68);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.file-create-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font: inherit;
+}
+
+.file-create-dialog input:focus {
+  border-color: rgba(98, 155, 255, 0.8);
+}
+
+.file-create-error {
+  min-height: 18px;
+  margin-top: 8px;
+  color: #ff9b9b;
+  font-size: 12px;
+}
+
+.file-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.file-create-actions button {
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.file-create-actions button[data-primary="true"] {
+  background: rgba(77, 129, 255, 0.28);
+  border-color: rgba(98, 155, 255, 0.55);
+}
+
+.file-create-actions button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}

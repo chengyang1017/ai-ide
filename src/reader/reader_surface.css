@@ -64,11 +64,26 @@
 ] > .editor,
 .editor-stage[
   data-editor-surface="reader"
-] > .markdown-preview,
+] > .markdown-preview {
+  display: none !important;
+}
+
 .editor-stage[
   data-editor-surface="reader"
 ] > .tutor-surface {
-  display: none !important;
+  display: block !important;
+  z-index: 40 !important;
+}
+
+.editor-stage[
+  data-editor-surface="reader"
+] > .tutor-surface
+  .speech-bubble.visible {
+  width: min(460px, calc(100% - 28px));
+  max-height: min(160px, 32vh);
+  overflow: auto;
+  white-space: normal;
+  text-overflow: clip;
 }
 
 .reader-scroll {

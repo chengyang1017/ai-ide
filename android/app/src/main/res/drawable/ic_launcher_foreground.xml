@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- IDE window -->
+    <path
+        android:fillColor="#111827"
+        android:pathData="M24,20 H84 C88.4,20 92,23.6 92,28 V80 C92,84.4 88.4,88 84,88 H24 C19.6,88 16,84.4 16,80 V28 C16,23.6 19.6,20 24,20 Z" />
+
+    <!-- Window title bar -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M24,20 H84 C88.4,20 92,23.6 92,28 V34 H16 V28 C16,23.6 19.6,20 24,20 Z" />
+
+    <!-- Window controls -->
+    <path
+        android:fillColor="#4DAEFF"
+        android:pathData="M25,25 A2.5,2.5 0,1 1,25,30 A2.5,2.5 0,1 1,25,25 Z" />
+    <path
+        android:fillColor="#64748B"
+        android:pathData="M33,25 A2.5,2.5 0,1 1,33,30 A2.5,2.5 0,1 1,33,25 Z" />
+    <path
+        android:fillColor="#475569"
+        android:pathData="M41,25 A2.5,2.5 0,1 1,41,30 A2.5,2.5 0,1 1,41,25 Z" />
+
+    <!-- Code symbol -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#F8FAFC"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M43,44 L34,53 L43,62" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#F8FAFC"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M62,44 L71,53 L62,62" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#F8FAFC"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M58,41 L48,65" />
+
+    <!-- Semantic teaching route -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#4DAEFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M28,73 C39,66 48,79 60,73 C68,69 73,64 78,58" />
+
+    <path
+        android:fillColor="#60A5FA"
+        android:pathData="M28,69.5 A3.5,3.5 0,1 1,28,76.5 A3.5,3.5 0,1 1,28,69.5 Z" />
+
+    <!-- AI Tutor node -->
+    <path
+        android:fillColor="#4DAEFF"
+        android:pathData="M80,49 A8,8 0,1 1,80,65 A8,8 0,1 1,80,49 Z" />
+
+    <path
+        android:fillColor="#EAF6FF"
+        android:pathData="M77,54 A1.5,1.5 0,1 1,77,57 A1.5,1.5 0,1 1,77,54 Z" />
+
+    <path
+        android:fillColor="#EAF6FF"
+        android:pathData="M83,54 A1.5,1.5 0,1 1,83,57 A1.5,1.5 0,1 1,83,54 Z" />
+
+    <path
+        android:fillColor="#0B1220"
+        android:pathData="M76.5,59.5 C78.5,61.5 81.5,61.5 83.5,59.5 C82,63 78,63 76.5,59.5 Z" />
+
+    <!-- Tutor antenna / guidance marker -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#93C5FD"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M80,49 L80,45" />
+
+    <path
+        android:fillColor="#93C5FD"
+        android:pathData="M80,42 A2.5,2.5 0,1 1,80,47 A2.5,2.5 0,1 1,80,42 Z" />
+
+</vector>

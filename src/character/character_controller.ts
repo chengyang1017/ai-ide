@@ -1,16 +1,31 @@
 import type { TutorMove } from '../core/tutor_move';
 import type { EditorController } from '../editor/editor_controller';
+import { monaco } from '../editor/monaco_setup';
 import type { VoiceController } from '../voice/voice_controller';
+
+type AgentEditFocusDetail = {
+  type: 'modified' | 'created' | 'deleted';
+  filePath: string;
+  line: number;
+  endLine: number;
+  oldPreview: string;
+  newPreview: string;
+};
 
 export class CharacterController {
   private currentMove: TutorMove | null = null;
   private moveSequence = 0;
   private questionPaused = false;
   private questionResume: (() => void) | null = null;
+  private agentEditZoneId: string | null = null;
+  private agentEditSequence = 0;
+  private agentEditQueue: Promise<void> = Promise.resolve();
 
   private readonly character: HTMLElement;
   private readonly bubble: HTMLElement;
   private readonly status: HTMLElement;
+  private readonly agentEditDecorations:
+    monaco.editor.IEditorDecorationsCollection;
 
   constructor(
     private readonly editorController: EditorController,
@@ -23,6 +38,8 @@ export class CharacterController {
     this.character = character;
     this.bubble = bubble;
     this.status = status;
+    this.agentEditDecorations =
+      this.editorController.editor.createDecorationsCollection();
 
     // Monaco 的 Ctrl+F / Replace 搜索框优先于 Tutor 气泡。
     // 搜索打开时只隐藏气泡，不停止语音，也不打断当前讲解。
@@ -64,6 +81,29 @@ export class CharacterController {
     this.editorController.onViewportChanged(() => {
       this.syncToEditor(false);
     });
+
+    window.addEventListener(
+      'ai-ide-agent-edit-focus',
+      (event) => {
+        const detail =
+          (event as CustomEvent<AgentEditFocusDetail>)
+            .detail;
+
+        if (
+          !detail
+            || !detail.filePath
+            || !Number.isFinite(detail.line)
+        ) {
+          return;
+        }
+
+        this.agentEditQueue = this.agentEditQueue
+          .then(() => this.presentAgentEdit(detail))
+          .catch(() => {
+            // A failed presentation must not block later Agent edits.
+          });
+      },
+    );
   }
 
   async moveTo(move: TutorMove): Promise<void> {
@@ -143,7 +183,10 @@ export class CharacterController {
       `${actionLabel} · ${move.filePath}:${move.line}`,
     );
 
-    if (this.voiceController?.isEnabled) {
+    if (
+      move.voice !== false
+        && this.voiceController?.isEnabled
+    ) {
       await this.voiceController.speak(move.speech);
     }
 
@@ -228,6 +271,7 @@ export class CharacterController {
     this.currentMove = null;
 
     this.editorController.clearHighlight();
+    this.clearAgentEditDiff();
 
     this.hideBubble();
 
@@ -261,6 +305,7 @@ export class CharacterController {
     this.currentMove = null;
 
     this.editorController.clearHighlight();
+    this.clearAgentEditDiff();
 
     this.hideBubble();
 
@@ -271,6 +316,154 @@ export class CharacterController {
 
   hideBubble(): void {
     this.bubble.classList.remove('visible');
+  }
+
+  private async presentAgentEdit(
+    detail: AgentEditFocusDetail,
+  ): Promise<void> {
+    if (detail.type === 'deleted') {
+      return;
+    }
+
+    const sequence = ++this.agentEditSequence;
+    this.clearAgentEditDiff();
+
+    const verb =
+      detail.type === 'created'
+        ? '新建这段代码'
+        : detail.oldPreview && detail.newPreview
+          ? '把这里的旧代码换成新的实现'
+          : detail.oldPreview
+            ? '删掉这里的旧代码'
+            : '在这里加入新代码';
+
+    await this.moveTo({
+      filePath: detail.filePath,
+      line: Math.max(1, detail.line),
+      column: 1,
+      speech: `我正在${verb}。你可以直接看编辑器里的红色删除和绿色新增。`,
+      action: 'point',
+      voice: false,
+    });
+
+    if (sequence !== this.agentEditSequence) {
+      return;
+    }
+
+    this.showAgentEditDiff(detail);
+    this.syncToEditor(false);
+
+    this.character.dataset.agentEditing = 'true';
+    this.setStatus(
+      `🤖 Agent 正在修改 · ${detail.filePath}:${detail.line}`,
+    );
+
+    // 这一小段停留时间是给用户真正“看它改”的，而不是为了等 I/O。
+    await delay(720);
+
+    if (sequence !== this.agentEditSequence) {
+      return;
+    }
+
+    this.character.dataset.agentEditing = 'false';
+  }
+
+  private showAgentEditDiff(
+    detail: AgentEditFocusDetail,
+  ): void {
+    const editor = this.editorController.editor;
+    const model = editor.getModel();
+
+    if (
+      !model
+        || this.editorController.path !== detail.filePath
+    ) {
+      return;
+    }
+
+    const lineCount = Math.max(1, model.getLineCount());
+    const startLine = Math.max(
+      1,
+      Math.min(detail.line, lineCount),
+    );
+    const endLine = Math.max(
+      startLine,
+      Math.min(detail.endLine, lineCount),
+    );
+
+    if (detail.newPreview.trim()) {
+      this.agentEditDecorations.set([
+        {
+          range: new monaco.Range(
+            startLine,
+            1,
+            endLine,
+            model.getLineMaxColumn(endLine),
+          ),
+          options: {
+            isWholeLine: true,
+            className: 'agent-edit-added-line',
+            linesDecorationsClassName:
+              'agent-edit-added-gutter',
+          },
+        },
+      ]);
+    } else {
+      this.agentEditDecorations.clear();
+    }
+
+    const deletedLines = detail.oldPreview
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0)
+      .slice(0, 4);
+
+    if (deletedLines.length === 0) {
+      return;
+    }
+
+    const zoneNode = document.createElement('div');
+    zoneNode.className = 'agent-edit-deleted-zone';
+
+    for (const deletedLine of deletedLines) {
+      const row = document.createElement('div');
+      row.className = 'agent-edit-deleted-line';
+
+      const prefix = document.createElement('span');
+      prefix.className = 'agent-edit-deleted-prefix';
+      prefix.textContent = '−';
+
+      const code = document.createElement('span');
+      code.className = 'agent-edit-deleted-code';
+      code.textContent = deletedLine;
+
+      row.append(prefix, code);
+      zoneNode.append(row);
+    }
+
+    editor.changeViewZones((accessor) => {
+      this.agentEditZoneId = accessor.addZone({
+        afterLineNumber: Math.max(0, startLine - 1),
+        heightInLines: deletedLines.length,
+        domNode: zoneNode,
+      });
+    });
+  }
+
+  private clearAgentEditDiff(): void {
+    this.agentEditDecorations.clear();
+
+    if (!this.agentEditZoneId) {
+      return;
+    }
+
+    const zoneId = this.agentEditZoneId;
+    this.agentEditZoneId = null;
+
+    this.editorController.editor.changeViewZones(
+      (accessor) => {
+        accessor.removeZone(zoneId);
+      },
+    );
   }
 
   private syncToEditor(

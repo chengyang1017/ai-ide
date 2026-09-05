@@ -1,0 +1,147 @@
+.editor-pane[data-terminal-open="true"] {
+  grid-template-rows: 35px minmax(0, 1fr) minmax(170px, 30vh);
+}
+
+.terminal-command-group button[data-active="true"] {
+  border-color: #5f6f86;
+  background: #29303a;
+}
+
+.terminal-panel {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr) 34px;
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid #303641;
+  background: #111419;
+  color: #d7dae0;
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+}
+
+.terminal-panel[hidden] {
+  display: none;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid #242932;
+  background: #15191f;
+}
+
+.terminal-title-wrap {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.terminal-title-wrap strong {
+  color: #dfe3ea;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.terminal-title-wrap span {
+  color: #7f8998;
+  font-size: 10px;
+}
+
+.terminal-title-wrap [data-terminal-cwd] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-actions button {
+  min-width: 0;
+  padding: 3px 7px;
+  border-color: transparent;
+  background: transparent;
+  color: #9da6b3;
+  font-size: 10px;
+}
+
+.terminal-actions button:hover:not(:disabled) {
+  background: #252b34;
+  color: #eef1f5;
+}
+
+.terminal-actions [data-terminal-close] {
+  padding-inline: 8px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.terminal-output {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 9px 12px;
+  overflow: auto;
+  color: #d7dbe2;
+  background: transparent;
+  font: 12px/1.55 "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.terminal-input-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-top: 1px solid #242932;
+  background: #13171c;
+}
+
+.terminal-prompt {
+  color: #76c7a0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.terminal-input-row input {
+  width: 100%;
+  min-width: 0;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f0f2f5;
+  font: 12px "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+}
+
+.terminal-input-row input::placeholder {
+  color: #505966;
+}
+
+.terminal-input-row input:disabled {
+  opacity: 0.55;
+}
+
+@media (max-width: 900px) {
+  .terminal-command-divider,
+  .terminal-command-group {
+    display: none;
+  }
+
+  .editor-pane[data-terminal-open="true"] {
+    grid-template-rows: 35px minmax(0, 1fr) minmax(150px, 34vh);
+  }
+}

@@ -1,0 +1,87 @@
+.agent-live-follow-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #8eb8f2;
+  font-size: 10px;
+}
+
+.agent-live-follow-indicator::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  box-shadow: 0 0 0 4px rgba(110, 165, 240, 0.09);
+}
+
+/*
+ * Agent edits are rendered inside Monaco itself.
+ * The actual new code remains the real editor model; removed code is shown
+ * in a Monaco view zone immediately above the replacement location.
+ */
+.monaco-editor .agent-edit-added-line {
+  background: rgba(66, 184, 122, 0.12);
+  box-shadow: inset 3px 0 0 rgba(78, 211, 143, 0.75);
+}
+
+.monaco-editor .agent-edit-added-gutter {
+  border-left: 2px solid rgba(78, 211, 143, 0.95);
+}
+
+.agent-edit-deleted-zone {
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+  background: rgba(201, 72, 72, 0.08);
+  border-left: 3px solid rgba(235, 93, 93, 0.72);
+  font-family: var(
+    --code-font-family,
+    "Cascadia Code", "JetBrains Mono", Consolas, monospace
+  );
+  font-size: var(--code-font-size, 15px);
+  line-height: var(--code-line-height, 24px);
+}
+
+.agent-edit-deleted-line {
+  display: flex;
+  align-items: center;
+  min-height: var(--code-line-height, 24px);
+  padding-left: 10px;
+  white-space: pre;
+  color: rgba(240, 166, 166, 0.9);
+}
+
+.agent-edit-deleted-prefix {
+  flex: 0 0 18px;
+  color: rgba(255, 102, 102, 0.98);
+  font-weight: 700;
+  user-select: none;
+}
+
+.agent-edit-deleted-code {
+  min-width: 0;
+  overflow: hidden;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(255, 120, 120, 0.75);
+}
+
+.tutor-character[data-agent-editing="true"] .robot {
+  filter: drop-shadow(0 0 8px rgba(88, 171, 255, 0.55));
+}
+
+.tutor-character[data-agent-editing="true"] .body span {
+  animation: agent-robot-edit-pulse 900ms ease-in-out infinite alternate;
+}
+
+@keyframes agent-robot-edit-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.78;
+  }
+  to {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}

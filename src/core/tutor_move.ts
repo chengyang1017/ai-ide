@@ -12,4 +12,6 @@ export interface TutorMove {
   speech: string;
   action: TutorAction;
   waitMs?: number;
+  /** Agent 跟随等高频移动可以关闭 TTS，只保留机器人和气泡。 */
+  voice?: boolean;
 }
