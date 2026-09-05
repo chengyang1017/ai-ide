@@ -21,17 +21,16 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
 
           main_path = Path('src/main.ts')
           main = main_path.read_text(encoding='utf-8')
           main = main.replace('<span>语言</span>\n              <select id="voice-language" class="voice-language" title="语音语言">', '<span>AI / 语音</span>\n              <select id="voice-language" class="voice-language" title="AI 输出与语音语言">', 1)
           main = main.replace('window.tutorIde.explainCurrentCode(context);', 'window.tutorIde.explainCurrentCode(context, preferredVoiceLanguage);', 1)
-          pattern = re.compile(r'(const result = await window\.tutorIde\.explainCurrentCode\(\{[\s\S]*?selectedText: `用户在老师讲解过程中插话提问：\$\{question\}`[\s\S]*?\n\s*\})\);', re.MULTILINE)
-          if 'selectedText: `用户在老师讲解过程中插话提问：${question}`' in main:
-              main, count = pattern.subn(r'\1, preferredVoiceLanguage);', main, count=1)
-              if count == 0 and 'preferredVoiceLanguage);' not in main:
-                  raise AssertionError('Could not patch tutor follow-up explanation language')
+          question_anchor = "      nearbyCode: `${context.nearbyCode}\\n\\n请先直接回答用户的问题，再用一两句话说明它和刚才讲解内容的关系。不要重新从头讲整段代码。`,\n    });\n    await characterController.presentQuestionAnswer(result.explanation);"
+          question_replacement = "      nearbyCode: `${context.nearbyCode}\\n\\n请先直接回答用户的问题，再用一两句话说明它和刚才讲解内容的关系。不要重新从头讲整段代码。`,\n    }, preferredVoiceLanguage);\n    await characterController.presentQuestionAnswer(result.explanation);"
+          if question_replacement not in main:
+              assert question_anchor in main, 'Tutor follow-up call anchor missing'
+              main = main.replace(question_anchor, question_replacement, 1)
           main = main.replace('window.tutorIde.planTutorTour(focus);', 'window.tutorIde.planTutorTour(focus, preferredVoiceLanguage);', 1)
           main = main.replace('window.tutorIde.planDartSemanticTour(focus, mode);', 'window.tutorIde.planDartSemanticTour(focus, mode, preferredVoiceLanguage);', 1)
           main_path.write_text(main, encoding='utf-8')
@@ -79,6 +78,7 @@ jobs:
       - name: Verify expected wiring exists
         run: |
           grep -F "explainCurrentCode(context, preferredVoiceLanguage)" src/main.ts
+          grep -F "}, preferredVoiceLanguage);" src/main.ts
           grep -F "planTutorTour(focus, preferredVoiceLanguage)" src/main.ts
           grep -F "planDartSemanticTour(focus, mode, preferredVoiceLanguage)" src/main.ts
           grep -F "requestedLanguage || persistentState.voice?.language" electron/main.cjs
