@@ -51,6 +51,10 @@ interface ProjectSnapshot {
   lastOpenFile?: string;
 }
 
+interface RestoredProjectSnapshot extends ProjectSnapshot {
+  lastOpenFile: string;
+}
+
 interface AgentEvent {
   runId?: string;
   type: string;
@@ -83,7 +87,7 @@ declare global {
         preferredFile?: string;
         message?: string;
       }>;
-      restoreProject(): Promise<ProjectSnapshot | null>;
+      restoreProject(): Promise<RestoredProjectSnapshot | null>;
       readProjectFile(relativePath: string): Promise<{
         path: string;
         content: string;
