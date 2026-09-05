@@ -463,10 +463,18 @@ let voiceEnabledPreference = true;
 
 type UiLanguage = 'zh-CN' | 'en-US';
 const UI_LANGUAGE_STORAGE_KEY = 'code-tutor-ui-language';
+const storedUiLanguage = window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY);
+const systemUiLanguage = (
+  navigator.languages?.[0]
+    ?? navigator.language
+    ?? ''
+).toLowerCase();
 let preferredUiLanguage: UiLanguage =
-  window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY) === 'en-US'
-    ? 'en-US'
-    : 'zh-CN';
+  storedUiLanguage === 'zh-CN' || storedUiLanguage === 'en-US'
+    ? storedUiLanguage
+    : systemUiLanguage.startsWith('zh')
+      ? 'zh-CN'
+      : 'en-US';
 
 function uiText(zh: string, en: string): string {
   return preferredUiLanguage === 'en-US' ? en : zh;
@@ -585,8 +593,8 @@ function applyUiLanguage(): void {
   setUiText('#appearance-modal .settings-dialog-header p', '颜色、背景图片和代码可读性都保存在本机，不会污染项目。', 'Colors, backgrounds, and code readability settings stay on this device and do not modify the project.');
   appearanceCloseButton.setAttribute('aria-label', uiText('关闭', 'Close'));
   setUiText('#appearance-modal .appearance-background-section h3', '背景颜色', 'Background Color');
-  setUiText('[data-background-mode="solid"]', '纯色', 'Solid');
-  setUiText('[data-background-mode="gradient"]', '渐变', 'Gradient');
+  setUiText('#appearance-background-mode [data-background-mode="solid"]', '纯色', 'Solid');
+  setUiText('#appearance-background-mode [data-background-mode="gradient"]', '渐变', 'Gradient');
 
   setUiText('.code-note-title-row strong', '📝 代码便签', '📝 Code Note');
   setUiText('.code-note-add-image', '＋ 图片', '＋ Image');
