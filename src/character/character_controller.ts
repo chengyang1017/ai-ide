@@ -3,6 +3,17 @@ import type { EditorController } from '../editor/editor_controller';
 import { monaco } from '../editor/monaco_setup';
 import type { VoiceController } from '../voice/voice_controller';
 
+function tutorText(
+  chinese: string,
+  english: string,
+): string {
+  const language = document
+    .querySelector<HTMLSelectElement>('#voice-language')
+    ?.value
+    ?.toLowerCase() ?? '';
+  return language.startsWith('en') ? english : chinese;
+}
+
 type AgentEditFocusDetail = {
   type: 'modified' | 'created' | 'deleted';
   filePath: string;
@@ -200,7 +211,7 @@ export class CharacterController {
 
     this.voiceController?.stop();
 
-    this.bubble.textContent = `你问：${question}`;
+    this.bubble.textContent = `${tutorText('你问：', 'You asked: ')}${question}`;
     this.bubble.classList.add('visible');
 
     this.setStatus(
@@ -257,7 +268,7 @@ export class CharacterController {
   }
 
   interrupt(
-    message = '讲解已打断',
+    message = tutorText('讲解已打断', 'Explanation interrupted'),
   ): void {
     this.stopSpeech();
 
@@ -291,7 +302,7 @@ export class CharacterController {
   }
 
   clear(
-    message = '等待操作',
+    message = tutorText('等待操作', 'Waiting for action'),
   ): void {
     this.stopSpeech();
 
@@ -328,20 +339,32 @@ export class CharacterController {
     const sequence = ++this.agentEditSequence;
     this.clearAgentEditDiff();
 
-    const verb =
-      detail.type === 'created'
-        ? '新建这段代码'
-        : detail.oldPreview && detail.newPreview
-          ? '把这里的旧代码换成新的实现'
-          : detail.oldPreview
-            ? '删掉这里的旧代码'
-            : '在这里加入新代码';
+  const speech =
+    detail.type === 'created'
+      ? tutorText(
+          '我正在新建这段代码。你可以直接看编辑器里的红色删除和绿色新增。',
+          'I am adding this code. You can watch the red deletions and green additions directly in the editor.',
+        )
+      : detail.oldPreview && detail.newPreview
+        ? tutorText(
+            '我正在把这里的旧代码换成新的实现。你可以直接看编辑器里的红色删除和绿色新增。',
+            'I am replacing the old code with the new implementation. You can watch the red deletions and green additions directly in the editor.',
+          )
+        : detail.oldPreview
+          ? tutorText(
+              '我正在删掉这里的旧代码。你可以直接看编辑器里的红色删除和绿色新增。',
+              'I am removing the old code here. You can watch the red deletions and green additions directly in the editor.',
+            )
+          : tutorText(
+              '我正在这里加入新代码。你可以直接看编辑器里的红色删除和绿色新增。',
+              'I am adding new code here. You can watch the red deletions and green additions directly in the editor.',
+            );
 
-    await this.moveTo({
-      filePath: detail.filePath,
-      line: Math.max(1, detail.line),
-      column: 1,
-      speech: `我正在${verb}。你可以直接看编辑器里的红色删除和绿色新增。`,
+  await this.moveTo({
+    filePath: detail.filePath,
+    line: Math.max(1, detail.line),
+    column: 1,
+    speech,
       action: 'point',
       voice: false,
     });

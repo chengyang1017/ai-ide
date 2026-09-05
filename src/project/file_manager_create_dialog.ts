@@ -119,9 +119,10 @@ function setStatus(message: string): void {
 }
 
 function realProjectOpen(): boolean {
-  return document.querySelector<HTMLElement>(
+  const badge = document.querySelector<HTMLElement>(
     '#workspace-badge',
-  )?.textContent?.trim() === '真实项目';
+  )?.textContent?.trim() ?? '';
+  return badge === '真实项目' || badge === 'Real Project';
 }
 
 function closeDialog(): void {
@@ -338,10 +339,10 @@ function actionFromClick(
   );
   const text = contextButton?.textContent?.trim() ?? '';
 
-  if (text.includes('新建文件夹')) {
+  if (text.includes('新建文件夹') || text.includes('New Folder')) {
     return 'directory';
   }
-  if (text.includes('新建文件')) {
+  if (text.includes('新建文件') || text.includes('New File')) {
     return 'file';
   }
 

@@ -69,10 +69,11 @@ function currentWorkspaceRoot(): string {
 }
 
 function isLocalProjectOpen(): boolean {
-  return document
+  const badge = document
     .querySelector<HTMLElement>('#workspace-badge')
     ?.textContent
-    ?.trim() === '真实项目';
+    ?.trim() ?? '';
+  return badge === '真实项目' || badge === 'Real Project';
 }
 
 function mustQuery<T extends Element>(

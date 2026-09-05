@@ -515,11 +515,11 @@ function currentRepositoryKey():
         ?? '';
 
   if (
-    workspaceBadge
-      === '真实项目'
-      && root
-      && root
-        !== '尚未打开真实项目'
+    (workspaceBadge === '真实项目'
+    || workspaceBadge === 'Real Project')
+    && root
+    && root !== '尚未打开真实项目'
+    && root !== 'No local project open'
   ) {
     const projectName =
       document

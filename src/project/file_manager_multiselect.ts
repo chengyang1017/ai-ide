@@ -106,16 +106,9 @@ function currentActiveFile(): string {
 }
 
 function hasUnsavedChanges(): boolean {
-  if (
-    document.querySelector<HTMLElement>('#editor-tab-dot')?.dataset.dirty
-      === 'true'
-  ) {
-    return true;
-  }
-
   return document
-    .querySelector<HTMLElement>('#editor-save-state')
-    ?.textContent?.includes('未保存') ?? false;
+    .querySelector<HTMLElement>('#editor-tab-dot')
+    ?.dataset.dirty === 'true';
 }
 
 function setStatus(message: string): void {

@@ -75,12 +75,10 @@ function joinRelativePath(
 }
 
 function isRealProjectOpen(): boolean {
-  return (
-    document.querySelector<HTMLElement>(
-      '#workspace-badge',
-    )?.textContent?.trim()
-      === '真实项目'
-  );
+  const badge = document.querySelector<HTMLElement>(
+    '#workspace-badge',
+  )?.textContent?.trim() ?? '';
+  return badge === '真实项目' || badge === 'Real Project';
 }
 
 function setStatus(message: string): void {
@@ -127,21 +125,9 @@ function currentActiveFile(): string {
 }
 
 function hasUnsavedChanges(): boolean {
-  const dot =
-    document.querySelector<HTMLElement>(
-      '#editor-tab-dot',
-    );
-
-  if (dot?.dataset.dirty === 'true') {
-    return true;
-  }
-
-  return (
-    document.querySelector<HTMLElement>(
-      '#editor-save-state',
-    )?.textContent?.includes('未保存')
-      ?? false
-  );
+  return document.querySelector<HTMLElement>(
+    '#editor-tab-dot',
+  )?.dataset.dirty === 'true';
 }
 
 function entryContainsPath(

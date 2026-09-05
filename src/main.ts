@@ -1,4 +1,5 @@
 import './styles.css';
+import './ui/runtime_i18n';
 import './tablet.css';
 import './tablet_dual.css';
 import './tablet/tablet_ui';
