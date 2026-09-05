@@ -1,0 +1,81 @@
+name: Add English tutor mode
+
+on:
+  push:
+    paths:
+      - '.github/workflows/upwork-english-tutor.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch English tutor mode
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          main_path = Path('src/main.ts')
+          main = main_path.read_text(encoding='utf-8')
+          old = '<option value="zh-CN">中文（简体）</option>'
+          new = '<option value="zh-CN">中文（简体）</option>\n                <option value="en-US">English (US)</option>'
+          if '<option value="en-US">English (US)</option>' not in main:
+              assert old in main, 'voice language option anchor not found'
+              main = main.replace(old, new, 1)
+          main_path.write_text(main, encoding='utf-8')
+
+          electron_path = Path('electron/main.cjs')
+          electron = electron_path.read_text(encoding='utf-8')
+
+          replacements = {
+              'content: CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT,': 'content: localizeTutorPrompt(CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT),',
+              'content: SEMANTIC_AI_TUTOR_SYSTEM_PROMPT,': 'content: localizeTutorPrompt(SEMANTIC_AI_TUTOR_SYSTEM_PROMPT),',
+              'content: AI_TUTOR_SYSTEM_PROMPT,': 'content: localizeTutorPrompt(AI_TUTOR_SYSTEM_PROMPT),',
+          }
+          for old_text, new_text in replacements.items():
+              if new_text not in electron:
+                  assert old_text in electron, f'prompt anchor not found: {old_text}'
+                  electron = electron.replace(old_text, new_text, 1)
+
+          old_requirement = '1. 使用简体中文，'
+          new_requirement = '1. 默认使用简体中文；如果提示末尾附加 Language override，则严格遵循 override 的语言。'
+          if new_requirement not in electron:
+              count = electron.count(old_requirement)
+              assert count == 3, f'expected 3 Chinese language requirements, found {count}'
+              electron = electron.replace(old_requirement, new_requirement)
+
+          helper_anchor = 'const CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT = `'
+          helper = '''function localizeTutorPrompt(prompt) {
+            const language = String(persistentState.voice?.language || 'zh-CN').toLowerCase();
+            if (!language.startsWith('en')) {
+              return prompt;
+            }
+
+            return `${prompt}\n\nLanguage override: Respond only in clear, natural English. All learner-visible explanations, speech, summaries, and teaching text must be English. Keep code identifiers unchanged.`;
+          }
+
+          '''
+          if 'function localizeTutorPrompt(prompt)' not in electron:
+              assert helper_anchor in electron, 'system prompt anchor not found'
+              electron = electron.replace(helper_anchor, helper + helper_anchor, 1)
+
+          electron_path.write_text(electron, encoding='utf-8')
+          PY
+
+      - name: Remove one-shot workflow
+        run: git rm .github/workflows/upwork-english-tutor.yml
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.ts electron/main.cjs .github/workflows/upwork-english-tutor.yml
+          git commit -m "feat: add English AI tutor output mode"
+          git push
