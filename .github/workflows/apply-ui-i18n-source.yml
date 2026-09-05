@@ -1,0 +1,313 @@
+name: Apply UI i18n source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-ui-i18n-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Generate runtime translator and patch language-sensitive logic
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Reuse the reviewed translation table already stored in the earlier
+          # one-shot workflow, without changing that workflow from Actions.
+          old_workflow = Path('.github/workflows/finish-ui-i18n.yml').read_text(encoding='utf-8')
+          start_token = "          cat > src/ui/runtime_i18n.ts <<'EOF'\n"
+          end_token = "\n          EOF\n"
+          start = old_workflow.find(start_token)
+          end = old_workflow.find(end_token, start + len(start_token))
+          if start < 0 or end < 0:
+              raise SystemExit('runtime i18n template not found')
+          payload = old_workflow[start + len(start_token):end]
+          lines = []
+          for line in payload.splitlines():
+              if line.startswith('          '):
+                  line = line[10:]
+              lines.append(line)
+          runtime = Path('src/ui/runtime_i18n.ts')
+          runtime.parent.mkdir(parents=True, exist_ok=True)
+          runtime.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+          def patch_file(path: str, transform):
+              p = Path(path)
+              before = p.read_text(encoding='utf-8')
+              after = transform(before)
+              if after == before:
+                  print(f'no change: {path}')
+              else:
+                  p.write_text(after, encoding='utf-8')
+                  print(f'patched: {path}')
+
+          def add_runtime_import(text: str) -> str:
+              marker = "import './styles.css';"
+              line = "import './ui/runtime_i18n';"
+              if line not in text:
+                  if marker not in text:
+                      raise SystemExit('main import marker missing')
+                  text = text.replace(marker, marker + '\n' + line, 1)
+              return text
+          patch_file('src/main.ts', add_runtime_import)
+
+          def bilingual_badge(text: str, fn: str) -> str:
+              pattern = re.compile(
+                  rf"function {re.escape(fn)}\(\): boolean \{{\s*return document\s*\.querySelector<HTMLElement>\('#workspace-badge'\)\s*\?\.textContent\s*\?\.trim\(\) === '真实项目';\s*\}}",
+                  re.S,
+              )
+              replacement = f"""function {fn}(): boolean {{
+            const badge = document
+              .querySelector<HTMLElement>('#workspace-badge')
+              ?.textContent
+              ?.trim() ?? '';
+            return badge === '真实项目' || badge === 'Real Project';
+          }}"""
+              next_text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'{fn} badge matcher failed')
+              return next_text
+
+          patch_file('src/agent/agent_panel.ts', lambda t: bilingual_badge(t, 'isRealProjectOpen'))
+          patch_file('src/agent/agent_follow.ts', lambda t: bilingual_badge(t, 'isRealProjectOpen'))
+          patch_file('src/terminal/terminal_panel.ts', lambda t: bilingual_badge(t, 'isLocalProjectOpen'))
+
+          def patch_file_manager(text: str) -> str:
+              pattern = re.compile(
+                  r"function isRealProjectOpen\(\): boolean \{\s*return \(\s*document\.querySelector<HTMLElement>\(\s*'#workspace-badge',\s*\)\?\.textContent\?\.trim\(\)\s*=== '真实项目'\s*\);\s*\}",
+                  re.S,
+              )
+              replacement = """function isRealProjectOpen(): boolean {
+            const badge = document.querySelector<HTMLElement>(
+              '#workspace-badge',
+            )?.textContent?.trim() ?? '';
+            return badge === '真实项目' || badge === 'Real Project';
+          }"""
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('file manager badge matcher failed')
+
+              dirty = re.compile(
+                  r"function hasUnsavedChanges\(\): boolean \{.*?\n\}",
+                  re.S,
+              )
+              replacement_dirty = """function hasUnsavedChanges(): boolean {
+            return document.querySelector<HTMLElement>(
+              '#editor-tab-dot',
+            )?.dataset.dirty === 'true';
+          }"""
+              text, count = dirty.subn(replacement_dirty, text, count=1)
+              if count != 1:
+                  raise SystemExit('file manager dirty matcher failed')
+              return text
+          patch_file('src/project/file_manager.ts', patch_file_manager)
+
+          def patch_multiselect(text: str) -> str:
+              pattern = re.compile(
+                  r"function hasUnsavedChanges\(\): boolean \{.*?\n\}",
+                  re.S,
+              )
+              replacement = """function hasUnsavedChanges(): boolean {
+            return document
+              .querySelector<HTMLElement>('#editor-tab-dot')
+              ?.dataset.dirty === 'true';
+          }"""
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('multiselect dirty matcher failed')
+              return text
+          patch_file('src/project/file_manager_multiselect.ts', patch_multiselect)
+
+          def patch_create_dialog(text: str) -> str:
+              pattern = re.compile(
+                  r"function realProjectOpen\(\): boolean \{\s*return document\.querySelector<HTMLElement>\(\s*'#workspace-badge',\s*\)\?\.textContent\?\.trim\(\) === '真实项目';\s*\}",
+                  re.S,
+              )
+              replacement = """function realProjectOpen(): boolean {
+            const badge = document.querySelector<HTMLElement>(
+              '#workspace-badge',
+            )?.textContent?.trim() ?? '';
+            return badge === '真实项目' || badge === 'Real Project';
+          }"""
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('create dialog badge matcher failed')
+              text = text.replace(
+                  "if (text.includes('新建文件夹')) {",
+                  "if (text.includes('新建文件夹') || text.includes('New Folder')) {",
+                  1,
+              )
+              text = text.replace(
+                  "if (text.includes('新建文件')) {",
+                  "if (text.includes('新建文件') || text.includes('New File')) {",
+                  1,
+              )
+              if "text.includes('New Folder')" not in text or "text.includes('New File')" not in text:
+                  raise SystemExit('create dialog bilingual action matcher failed')
+              return text
+          patch_file('src/project/file_manager_create_dialog.ts', patch_create_dialog)
+
+          def patch_reader(text: str) -> str:
+              old = """    workspaceBadge
+              === '真实项目'
+              && root
+              && root
+                !== '尚未打开真实项目'"""
+              new = """    (workspaceBadge === '真实项目'
+              || workspaceBadge === 'Real Project')
+              && root
+              && root !== '尚未打开真实项目'
+              && root !== 'No local project open'"""
+              if old not in text:
+                  raise SystemExit('reader workspace condition missing')
+              return text.replace(old, new, 1)
+          patch_file('src/reader/reader_collab.ts', patch_reader)
+
+          def patch_android_session(text: str) -> str:
+              pattern = re.compile(
+                  r"const realProject =\s*document\.querySelector<HTMLElement>\(\s*'#workspace-badge',\s*\)\?\.textContent\?\.trim\(\)\s*=== '真实项目';",
+                  re.S,
+              )
+              replacement = """const badge =
+              document.querySelector<HTMLElement>(
+                '#workspace-badge',
+              )?.textContent?.trim() ?? '';
+            const realProject =
+              badge === '真实项目'
+                || badge === 'Real Project';"""
+              next_text, count = pattern.subn(replacement, text, count=1)
+              if count == 0:
+                  print('android reader badge pattern not present; leaving unchanged')
+                  return text
+              return next_text
+          patch_file('src/android/android_reader_session.ts', patch_android_session)
+
+          def patch_character(text: str) -> str:
+              helper = """
+          function tutorText(
+            chinese: string,
+            english: string,
+          ): string {
+            const language = document
+              .querySelector<HTMLSelectElement>('#voice-language')
+              ?.value
+              ?.toLowerCase() ?? '';
+            return language.startsWith('en')
+              ? english
+              : chinese;
+          }
+          """
+              if 'function tutorText(' not in text:
+                  marker = 'type AgentEditFocusDetail = {'
+                  if marker not in text:
+                      raise SystemExit('character helper marker missing')
+                  text = text.replace(marker, helper + '\n' + marker, 1)
+
+              text = text.replace(
+                  'this.bubble.textContent = `你问：${question}`;',
+                  "this.bubble.textContent = `${tutorText('你问：', 'You asked: ')}${question}`;",
+                  1,
+              )
+              text = text.replace(
+                  "message = '讲解已打断',",
+                  "message = tutorText('讲解已打断', 'Explanation interrupted'),",
+                  1,
+              )
+              text = text.replace(
+                  "message = '等待操作',",
+                  "message = tutorText('等待操作', 'Waiting for action'),",
+                  1,
+              )
+
+              old = """    const verb =
+              detail.type === 'created'
+                ? '新建这段代码'
+                : detail.oldPreview && detail.newPreview
+                  ? '把这里的旧代码换成新的实现'
+                  : detail.oldPreview
+                    ? '删掉这里的旧代码'
+                    : '在这里加入新代码';
+
+            await this.moveTo({
+              filePath: detail.filePath,
+              line: Math.max(1, detail.line),
+              column: 1,
+              speech: `我正在${verb}。你可以直接看编辑器里的红色删除和绿色新增。`,"""
+              new = """    const speech =
+              detail.type === 'created'
+                ? tutorText(
+                    '我正在新建这段代码。你可以直接看编辑器里的红色删除和绿色新增。',
+                    'I am adding this code. You can watch the red deletions and green additions directly in the editor.',
+                  )
+                : detail.oldPreview && detail.newPreview
+                  ? tutorText(
+                      '我正在把这里的旧代码换成新的实现。你可以直接看编辑器里的红色删除和绿色新增。',
+                      'I am replacing the old code with the new implementation. You can watch the red deletions and green additions directly in the editor.',
+                    )
+                  : detail.oldPreview
+                    ? tutorText(
+                        '我正在删掉这里的旧代码。你可以直接看编辑器里的红色删除和绿色新增。',
+                        'I am removing the old code here. You can watch the red deletions and green additions directly in the editor.',
+                      )
+                    : tutorText(
+                        '我正在这里加入新代码。你可以直接看编辑器里的红色删除和绿色新增。',
+                        'I am adding new code here. You can watch the red deletions and green additions directly in the editor.',
+                      );
+
+            await this.moveTo({
+              filePath: detail.filePath,
+              line: Math.max(1, detail.line),
+              column: 1,
+              speech,"""
+              if old not in text:
+                  raise SystemExit('character agent speech block missing')
+              text = text.replace(old, new, 1)
+              return text
+          patch_file('src/character/character_controller.ts', patch_character)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit verified source only
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/main.ts \
+            src/ui/runtime_i18n.ts \
+            src/agent/agent_panel.ts \
+            src/agent/agent_follow.ts \
+            src/terminal/terminal_panel.ts \
+            src/project/file_manager.ts \
+            src/project/file_manager_multiselect.ts \
+            src/project/file_manager_create_dialog.ts \
+            src/reader/reader_collab.ts \
+            src/android/android_reader_session.ts \
+            src/character/character_controller.ts
+          git commit -m "feat: complete English UI localization"
+          git push origin HEAD:main
