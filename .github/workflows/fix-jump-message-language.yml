@@ -21,19 +21,10 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path('src/main.ts')
           text = path.read_text(encoding='utf-8')
-          old = """    speech: isRealProject
-      ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`
-      : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。',"""
-          new = """    speech: preferredVoiceLanguage.toLowerCase().startsWith('en')
-      ? (isRealProject
-          ? `I'm now at ${editorController.path}, line ${position.lineNumber}. Next, the AI can decide where to navigate on its own.`
-          : 'This is a demo file. Open a project first, and I can move through your real code.')
-      : (isRealProject
-          ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`
-          : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。'),"""
+          old = "    speech: isRealProject\n      ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`\n      : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。',"
+          new = "    speech: preferredVoiceLanguage.toLowerCase().startsWith('en')\n      ? (isRealProject\n          ? `I'm now at ${editorController.path}, line ${position.lineNumber}. Next, the AI can decide where to navigate on its own.`\n          : 'This is a demo file. Open a project first, and I can move through your real code.')\n      : (isRealProject\n          ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`\n          : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。'),"
           if old not in text:
               raise SystemExit('jump speech anchor not found')
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
