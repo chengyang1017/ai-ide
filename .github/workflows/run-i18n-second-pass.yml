@@ -1,0 +1,33 @@
+name: Run secondary UI translation patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/run-i18n-second-pass.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: python scripts/i18n_second_pass.py
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Commit verified translations
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ui/runtime_i18n.ts
+          git commit -m "feat: finish secondary English UI translations"
+          git push origin HEAD:main
