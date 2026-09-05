@@ -1,13 +1,39 @@
 .speech-bubble.tutor-dialog-card {
+  position: absolute !important;
+  z-index: 60 !important;
   box-sizing: border-box !important;
-  min-width: 260px;
-  max-width: calc(100vw - 28px) !important;
-  max-height: min(320px, 46vh) !important;
-  padding: 38px 16px 14px !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
-  border: 1px solid rgb(137 151 185 / 34%) !important;
-  border-radius: 17px !important;
+  width:
+    min(
+      var(--tutor-dialog-width, 420px),
+      calc(100% - 24px)
+    ) !important;
+  min-width:
+    min(
+      260px,
+      calc(100% - 24px)
+    ) !important;
+  max-width:
+    calc(100% - 24px) !important;
+  max-height:
+    var(
+      --tutor-dialog-max-height,
+      min(320px, 46vh)
+    ) !important;
+  padding:
+    12px 16px 14px !important;
+  overflow-x:
+    hidden !important;
+  overflow-y:
+    auto !important;
+  overscroll-behavior:
+    contain;
+  scrollbar-gutter:
+    stable;
+  border:
+    1px solid
+    rgb(137 151 185 / 34%) !important;
+  border-radius:
+    17px !important;
   background:
     linear-gradient(
       145deg,
@@ -15,12 +41,22 @@
       rgb(21 25 34 / 96%)
     ) !important;
   box-shadow:
-    0 18px 48px rgb(0 0 0 / 38%),
-    0 1px 0 rgb(255 255 255 / 5%) inset,
-    0 0 0 1px rgb(124 92 255 / 5%) !important;
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  color: #eef2f8 !important;
+    0 18px 48px
+      rgb(0 0 0 / 38%),
+    0 1px 0
+      rgb(255 255 255 / 5%)
+      inset,
+    0 0 0 1px
+      rgb(124 92 255 / 5%)
+      !important;
+  backdrop-filter:
+    blur(16px)
+    saturate(1.15);
+  -webkit-backdrop-filter:
+    blur(16px)
+    saturate(1.15);
+  color:
+    #eef2f8 !important;
   font-family:
     Inter,
     ui-sans-serif,
@@ -29,125 +65,302 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif !important;
-  font-size: 13px !important;
-  font-weight: 500;
-  line-height: 1.72 !important;
-  letter-spacing: 0.01em;
-  text-align: left;
-  text-overflow: clip !important;
-  white-space: normal !important;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  pointer-events: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgb(126 135 160 / 55%) transparent;
+  font-size:
+    13px !important;
+  font-weight:
+    500;
+  line-height:
+    1.72 !important;
+  letter-spacing:
+    0.01em;
+  text-align:
+    left;
+  text-overflow:
+    clip !important;
+  white-space:
+    normal !important;
+  overflow-wrap:
+    anywhere;
+  word-break:
+    break-word;
+  pointer-events:
+    auto !important;
+  opacity:
+    0;
+  transform:
+    translateY(6px)
+    scale(.985);
   transform-origin:
-    var(--tutor-dialog-origin-x, 50%)
-    var(--tutor-dialog-origin-y, 100%);
+    var(
+      --tutor-dialog-origin-x,
+      50%
+    )
+    var(
+      --tutor-dialog-origin-y,
+      100%
+    );
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+  scrollbar-width:
+    thin;
+  scrollbar-color:
+    rgb(126 135 160 / 55%)
+    transparent;
 }
 
+/*
+  The label deliberately participates in the scroll layout.
+  It cannot sit on top of the first paragraph anymore.
+*/
 .speech-bubble.tutor-dialog-card::before {
-  content: "✦  AI 老师";
-  position: absolute;
-  top: 10px;
-  left: 14px;
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  padding: 2px 8px;
-  border: 1px solid rgb(128 113 255 / 28%);
-  border-radius: 999px;
-  background: rgb(106 88 255 / 13%);
-  color: #bdb5ff;
-  font-size: 10px;
-  font-weight: 760;
-  line-height: 16px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  content:
+    "✦  AI 老师";
+  position:
+    sticky;
+  top:
+    0;
+  z-index:
+    4;
+  display:
+    flex;
+  align-items:
+    center;
+  width:
+    max-content;
+  max-width:
+    calc(100% - 2px);
+  min-height:
+    22px;
+  margin:
+    0 0 14px 0;
+  padding:
+    3px 9px;
+  border:
+    1px solid
+    rgb(128 113 255 / 28%);
+  border-radius:
+    999px;
+  background:
+    rgb(32 31 52 / 96%);
+  box-shadow:
+    0 6px 14px
+    rgb(16 17 24 / 34%);
+  color:
+    #bdb5ff;
+  font-size:
+    10px;
+  font-weight:
+    760;
+  line-height:
+    16px;
+  letter-spacing:
+    0.07em;
+  text-transform:
+    uppercase;
+  white-space:
+    nowrap;
+  pointer-events:
+    none;
 }
 
-:root[lang^="en"] .speech-bubble.tutor-dialog-card::before {
-  content: "✦  AI Tutor";
+:root[lang^="en"]
+.speech-bubble.tutor-dialog-card::before {
+  content:
+    "✦  AI Tutor";
 }
 
 .speech-bubble.tutor-dialog-card::after {
-  content: "";
-  position: absolute;
-  left: var(--tutor-tail-x, 50%);
-  width: 13px;
-  height: 13px;
-  border-right: 1px solid rgb(137 151 185 / 30%);
-  border-bottom: 1px solid rgb(137 151 185 / 30%);
-  background: rgb(24 28 38 / 98%);
-  transform: translateX(-50%) rotate(45deg);
+  content:
+    "";
+  position:
+    absolute;
+  left:
+    var(
+      --tutor-tail-x,
+      50%
+    );
+  z-index:
+    2;
+  width:
+    13px;
+  height:
+    13px;
+  border-right:
+    1px solid
+    rgb(137 151 185 / 30%);
+  border-bottom:
+    1px solid
+    rgb(137 151 185 / 30%);
+  background:
+    rgb(24 28 38 / 98%);
+  transform:
+    translateX(-50%)
+    rotate(45deg);
+  pointer-events:
+    none;
 }
 
-.speech-bubble.tutor-dialog-card[data-anchor-placement="above"]::after {
-  bottom: -7px;
+.speech-bubble.tutor-dialog-card[
+  data-anchor-placement="above"
+]::after {
+  bottom:
+    -7px;
 }
 
-.speech-bubble.tutor-dialog-card[data-anchor-placement="below"]::after {
-  top: -7px;
-  transform: translateX(-50%) rotate(225deg);
+.speech-bubble.tutor-dialog-card[
+  data-anchor-placement="below"
+]::after {
+  top:
+    -7px;
+  transform:
+    translateX(-50%)
+    rotate(225deg);
 }
 
-.speech-bubble.tutor-dialog-card[data-anchor-placement="edge"]::after {
-  display: none;
+.speech-bubble.tutor-dialog-card[
+  data-anchor-placement="edge"
+]::after {
+  display:
+    none;
 }
 
-.speech-bubble.tutor-dialog-card .tutor-dialog-chunk {
-  display: block;
-  position: relative;
-  margin: 0;
-  padding: 0;
-  color: inherit;
-  white-space: pre-wrap;
+.speech-bubble.tutor-dialog-card[
+  data-anchor-horizontal="right"
+] {
+  border-top-left-radius:
+    7px !important;
 }
 
-.speech-bubble.tutor-dialog-card .tutor-dialog-chunk + .tutor-dialog-chunk {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgb(255 255 255 / 6%);
+.speech-bubble.tutor-dialog-card[
+  data-anchor-horizontal="left"
+] {
+  border-top-right-radius:
+    7px !important;
+}
+
+.speech-bubble.tutor-dialog-card
+.tutor-dialog-chunk {
+  position:
+    relative;
+  z-index:
+    1;
+  display:
+    block;
+  margin:
+    0;
+  padding:
+    0;
+  color:
+    inherit;
+  white-space:
+    pre-wrap;
+}
+
+.speech-bubble.tutor-dialog-card
+.tutor-dialog-chunk
++ .tutor-dialog-chunk {
+  margin-top:
+    10px;
+  padding-top:
+    10px;
+  border-top:
+    1px solid
+    rgb(255 255 255 / 6%);
 }
 
 .speech-bubble.tutor-dialog-card.visible {
-  animation: tutorDialogIn 190ms cubic-bezier(.2,.75,.25,1);
+  opacity:
+    1 !important;
+  transform:
+    translateY(0)
+    scale(1) !important;
+  animation:
+    tutorDialogIn
+    190ms
+    cubic-bezier(.2, .75, .25, 1);
 }
 
 .speech-bubble.tutor-dialog-card::-webkit-scrollbar {
-  width: 7px;
+  width:
+    7px;
 }
 
 .speech-bubble.tutor-dialog-card::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: rgb(126 135 160 / 55%);
-  background-clip: padding-box;
+  border:
+    2px solid
+    transparent;
+  border-radius:
+    999px;
+  background:
+    rgb(126 135 160 / 55%);
+  background-clip:
+    padding-box;
 }
 
 .speech-bubble.tutor-dialog-card::-webkit-scrollbar-track {
-  background: transparent;
+  background:
+    transparent;
 }
 
 @keyframes tutorDialogIn {
   from {
-    opacity: 0;
-    filter: blur(2px);
+    opacity:
+      0;
+    filter:
+      blur(2px);
   }
 
   to {
-    opacity: 1;
-    filter: blur(0);
+    opacity:
+      1;
+    filter:
+      blur(0);
   }
 }
 
 @media (max-width: 820px) {
   .speech-bubble.tutor-dialog-card {
-    min-width: 220px;
-    max-height: min(260px, 42vh) !important;
-    padding: 36px 13px 12px !important;
-    border-radius: 15px !important;
-    font-size: 12px !important;
-    line-height: 1.65 !important;
+    width:
+      min(
+        var(
+          --tutor-dialog-width,
+          340px
+        ),
+        calc(100% - 14px)
+      ) !important;
+    min-width:
+      min(
+        220px,
+        calc(100% - 14px)
+      ) !important;
+    max-width:
+      calc(100% - 14px)
+      !important;
+    max-height:
+      var(
+        --tutor-dialog-max-height,
+        min(260px, 42vh)
+      ) !important;
+    padding:
+      10px 13px 12px
+      !important;
+    border-radius:
+      15px !important;
+    font-size:
+      12px !important;
+    line-height:
+      1.65 !important;
+  }
+
+  .speech-bubble.tutor-dialog-card::before {
+    min-height:
+      20px;
+    margin-bottom:
+      11px;
+    padding:
+      2px 8px;
+    font-size:
+      9px;
   }
 }

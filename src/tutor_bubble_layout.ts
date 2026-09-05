@@ -1,14 +1,30 @@
-const DESKTOP_BREAKPOINT = 1180;
 const BUBBLE_GAP = 16;
 const EDGE_PADDING = 18;
 const MAX_BUBBLE_WIDTH = 480;
 const MAX_BUBBLE_HEIGHT = 330;
+const MIN_BUBBLE_WIDTH = 260;
+const MIN_BUBBLE_HEIGHT = 120;
+
+type VerticalSide =
+  | 'above'
+  | 'below';
+
+type HorizontalSide =
+  | 'left'
+  | 'right';
 
 interface Candidate {
   x: number;
   y: number;
-  side: 'above' | 'below';
-  horizontal: 'left' | 'right';
+  side: VerticalSide;
+  horizontal: HorizontalSide;
+}
+
+interface PositionedCandidate
+  extends Candidate {
+  clampedX: number;
+  clampedY: number;
+  score: number;
 }
 
 interface RectLike {
@@ -20,282 +36,706 @@ interface RectLike {
   height: number;
 }
 
-function installTutorBubbleLayout(): void {
-  const surface = document.querySelector<HTMLElement>('#tutor-surface');
-  const character = document.querySelector<HTMLElement>('#tutor-character');
-  const bubble = document.querySelector<HTMLElement>('#speech-bubble');
+interface SafeBounds {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
 
-  if (!surface || !character || !bubble) {
-    window.requestAnimationFrame(installTutorBubbleLayout);
+function installTutorBubbleLayout(): void {
+  const surface =
+    document.querySelector<HTMLElement>(
+      '#tutor-surface',
+    );
+  const character =
+    document.querySelector<HTMLElement>(
+      '#tutor-character',
+    );
+  const bubble =
+    document.querySelector<HTMLElement>(
+      '#speech-bubble',
+    );
+
+  if (
+    !surface
+      || !character
+      || !bubble
+  ) {
+    window.requestAnimationFrame(
+      installTutorBubbleLayout,
+    );
     return;
   }
 
-  const style = document.createElement('style');
-  style.dataset.tutorBubbleSmartLayout = 'true';
-  style.textContent = `
-    @media (min-width: 1181px) {
-      #tutor-character > .speech-bubble {
-        position: absolute !important;
-        z-index: 40 !important;
-        top: var(--tutor-bubble-top, -230px) !important;
-        right: auto !important;
-        bottom: auto !important;
-        left: var(--tutor-bubble-left, 86px) !important;
-        width: min(${MAX_BUBBLE_WIDTH}px, calc(100vw - 64px)) !important;
-        max-width: ${MAX_BUBBLE_WIDTH}px !important;
-        max-height: min(${MAX_BUBBLE_HEIGHT}px, 52vh) !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        padding: 14px 18px 18px !important;
-        border: 1px solid #465064 !important;
-        border-radius: 14px !important;
-        background: rgb(29 34 43 / 97%) !important;
-        box-shadow: 0 18px 45px rgb(0 0 0 / 42%) !important;
-        color: #edf0f6 !important;
-        font-size: 14px !important;
-        line-height: 1.72 !important;
-        white-space: pre-wrap !important;
-        text-overflow: clip !important;
-        pointer-events: auto !important;
-        opacity: 0 !important;
-        transform: translateY(8px) scale(.985) !important;
-        transition: opacity 160ms ease, transform 160ms ease !important;
-      }
-
-      #tutor-character > .speech-bubble::before {
-        content: '✦  AI Tutor';
-        display: block;
-        width: max-content;
-        margin: 0 0 12px;
-        padding: 4px 9px;
-        border: 1px solid rgb(137 116 255 / 42%);
-        border-radius: 999px;
-        background: rgb(106 84 214 / 22%);
-        color: #bdb2ff;
-        font-size: 11px;
-        font-weight: 800;
-        line-height: 1.2;
-      }
-
-      #tutor-character > .speech-bubble.visible {
-        opacity: 1 !important;
-        transform: translateY(0) scale(1) !important;
-      }
-
-      #tutor-character[data-bubble-horizontal='right'] > .speech-bubble {
-        border-top-left-radius: 5px !important;
-      }
-
-      #tutor-character[data-bubble-horizontal='left'] > .speech-bubble {
-        border-top-right-radius: 5px !important;
-      }
-
-      #tutor-character[data-bubble-side='above'] > .speech-bubble {
-        transform-origin: 50% 100% !important;
-      }
-
-      #tutor-character[data-bubble-side='below'] > .speech-bubble {
-        transform-origin: 50% 0 !important;
-      }
-    }
-  `;
-  document.head.appendChild(style);
-
   let frame = 0;
 
-  const scheduleLayout = (): void => {
-    if (frame) {
-      return;
-    }
-    frame = window.requestAnimationFrame(() => {
-      frame = 0;
-      syncBubbleParent();
-      positionBubble();
-    });
-  };
+  const syncBubbleParent =
+    (): void => {
+      if (bubble.parentElement !== surface) {
+        surface.prepend(bubble);
+      }
+    };
 
-  const syncBubbleParent = (): void => {
-    const desktop = window.innerWidth > DESKTOP_BREAKPOINT;
+  const scheduleLayout =
+    (): void => {
+      if (frame !== 0) {
+        return;
+      }
 
-    if (desktop && bubble.parentElement !== character) {
-      character.prepend(bubble);
-    } else if (!desktop && bubble.parentElement !== surface) {
-      surface.prepend(bubble);
-    }
+      frame =
+        window.requestAnimationFrame(
+          () => {
+            frame = 0;
+            syncBubbleParent();
+            positionBubble();
+          },
+        );
+    };
 
-    if (!desktop) {
-      delete character.dataset.bubbleSide;
-      delete character.dataset.bubbleHorizontal;
-      character.style.removeProperty('--tutor-bubble-left');
-      character.style.removeProperty('--tutor-bubble-top');
-    }
-  };
+  const positionBubble =
+    (): void => {
+      const surfaceRect =
+        surface.getBoundingClientRect();
+      const characterRect =
+        character.getBoundingClientRect();
 
-  const positionBubble = (): void => {
-    if (window.innerWidth <= DESKTOP_BREAKPOINT || bubble.parentElement !== character) {
-      return;
-    }
+      if (
+        surfaceRect.width <= 0
+          || surfaceRect.height <= 0
+      ) {
+        return;
+      }
 
-    const surfaceRect = surface.getBoundingClientRect();
-    const characterRect = character.getBoundingClientRect();
-    if (!surfaceRect.width || !surfaceRect.height || !characterRect.width || !characterRect.height) {
-      return;
-    }
+      const safeBounds =
+        getSafeBounds(
+          surfaceRect,
+        );
 
-    const bubbleWidth = Math.min(
-      MAX_BUBBLE_WIDTH,
-      Math.max(300, surfaceRect.width - EDGE_PADDING * 2),
+      if (
+        safeBounds.width <= 0
+          || safeBounds.height <= 0
+      ) {
+        return;
+      }
+
+      const targetWidth =
+        Math.min(
+          MAX_BUBBLE_WIDTH,
+          Math.max(
+            MIN_BUBBLE_WIDTH,
+            safeBounds.width,
+          ),
+        );
+
+      const actualWidth =
+        Math.min(
+          targetWidth,
+          safeBounds.width,
+        );
+
+      const maxHeight =
+        Math.min(
+          MAX_BUBBLE_HEIGHT,
+          Math.max(
+            MIN_BUBBLE_HEIGHT,
+            safeBounds.height,
+          ),
+        );
+
+      bubble.style.setProperty(
+        '--tutor-dialog-width',
+        `${Math.round(actualWidth)}px`,
+      );
+      bubble.style.setProperty(
+        '--tutor-dialog-max-height',
+        `${Math.round(
+          Math.min(
+            maxHeight,
+            safeBounds.height,
+          ),
+        )}px`,
+      );
+
+      // Reading offsetWidth/offsetHeight here intentionally forces layout
+      // after the width/max-height variables above have changed.
+      const bubbleWidth =
+        Math.min(
+          Math.max(
+            1,
+            bubble.offsetWidth,
+          ),
+          safeBounds.width,
+        );
+      const bubbleHeight =
+        Math.min(
+          Math.max(
+            1,
+            bubble.offsetHeight,
+          ),
+          safeBounds.height,
+        );
+
+      const charLeft =
+        characterRect.left
+          - surfaceRect.left;
+      const charTop =
+        characterRect.top
+          - surfaceRect.top;
+      const charRight =
+        characterRect.right
+          - surfaceRect.left;
+      const charBottom =
+        characterRect.bottom
+          - surfaceRect.top;
+
+      const upperY =
+        charTop
+          - bubbleHeight
+          - BUBBLE_GAP;
+      const lowerY =
+        charBottom
+          + BUBBLE_GAP;
+      const rightX =
+        charRight
+          + BUBBLE_GAP;
+      const leftX =
+        charLeft
+          - bubbleWidth
+          - BUBBLE_GAP;
+
+      const candidates:
+        Candidate[] = [
+          {
+            x: rightX,
+            y: upperY,
+            side: 'above',
+            horizontal: 'right',
+          },
+          {
+            x: rightX,
+            y: lowerY,
+            side: 'below',
+            horizontal: 'right',
+          },
+          {
+            x: leftX,
+            y: upperY,
+            side: 'above',
+            horizontal: 'left',
+          },
+          {
+            x: leftX,
+            y: lowerY,
+            side: 'below',
+            horizontal: 'left',
+          },
+        ];
+
+      const codeRects =
+        visibleCodeRects(
+          surfaceRect,
+        );
+
+      const characterLocalRect:
+        RectLike = {
+          left: charLeft,
+          top: charTop,
+          right: charRight,
+          bottom: charBottom,
+          width:
+            Math.max(
+              0,
+              characterRect.width,
+            ),
+          height:
+            Math.max(
+              0,
+              characterRect.height,
+            ),
+        };
+
+      const positioned =
+        candidates
+          .map(
+            (
+              candidate,
+              index,
+            ): PositionedCandidate => {
+              const clampedX =
+                clamp(
+                  candidate.x,
+                  safeBounds.left,
+                  Math.max(
+                    safeBounds.left,
+                    safeBounds.right
+                      - bubbleWidth,
+                  ),
+                );
+              const clampedY =
+                clamp(
+                  candidate.y,
+                  safeBounds.top,
+                  Math.max(
+                    safeBounds.top,
+                    safeBounds.bottom
+                      - bubbleHeight,
+                  ),
+                );
+
+              const rect:
+                RectLike = {
+                  left: clampedX,
+                  top: clampedY,
+                  right:
+                    clampedX
+                      + bubbleWidth,
+                  bottom:
+                    clampedY
+                      + bubbleHeight,
+                  width: bubbleWidth,
+                  height: bubbleHeight,
+                };
+
+              let codeOverlap = 0;
+
+              for (
+                const codeRect
+                  of codeRects
+              ) {
+                codeOverlap +=
+                  overlapArea(
+                    rect,
+                    codeRect,
+                  );
+              }
+
+              const characterOverlap =
+                overlapArea(
+                  rect,
+                  characterLocalRect,
+                );
+
+              const clampDistance =
+                Math.abs(
+                  clampedX
+                    - candidate.x,
+                )
+                + Math.abs(
+                  clampedY
+                    - candidate.y,
+                );
+
+              // Avoid covering code first, then avoid covering the robot,
+              // then prefer positions that need less edge clamping.
+              const score =
+                codeOverlap
+                + characterOverlap
+                  * 200
+                + clampDistance
+                  * 6
+                + index
+                  * 0.01;
+
+              return {
+                ...candidate,
+                clampedX,
+                clampedY,
+                score,
+              };
+            },
+          )
+          .sort(
+            (a, b) =>
+              a.score - b.score,
+          );
+
+      const best =
+        positioned[0];
+
+      if (!best) {
+        return;
+      }
+
+      const characterCenterX =
+        charLeft
+          + characterRect.width / 2;
+
+      const tailX =
+        clamp(
+          characterCenterX
+            - best.clampedX,
+          20,
+          Math.max(
+            20,
+            bubbleWidth - 20,
+          ),
+        );
+
+      const wasHeavilyClamped =
+        Math.abs(
+          best.clampedX - best.x,
+        ) > BUBBLE_GAP * 2
+        || Math.abs(
+          best.clampedY - best.y,
+        ) > BUBBLE_GAP * 2;
+
+      const characterOutsideSafeArea =
+        charRight
+          < safeBounds.left
+        || charLeft
+          > safeBounds.right
+        || charBottom
+          < safeBounds.top
+        || charTop
+          > safeBounds.bottom;
+
+      const placement =
+        wasHeavilyClamped
+          || characterOutsideSafeArea
+          ? 'edge'
+          : best.side;
+
+      bubble.style.setProperty(
+        'left',
+        `${Math.round(
+          best.clampedX,
+        )}px`,
+        'important',
+      );
+      bubble.style.setProperty(
+        'top',
+        `${Math.round(
+          best.clampedY,
+        )}px`,
+        'important',
+      );
+      bubble.style.setProperty(
+        'right',
+        'auto',
+        'important',
+      );
+      bubble.style.setProperty(
+        'bottom',
+        'auto',
+        'important',
+      );
+
+      bubble.style.setProperty(
+        '--tutor-tail-x',
+        `${Math.round(
+          tailX,
+        )}px`,
+      );
+      bubble.style.setProperty(
+        '--tutor-dialog-origin-x',
+        `${Math.round(
+          tailX,
+        )}px`,
+      );
+      bubble.style.setProperty(
+        '--tutor-dialog-origin-y',
+        placement === 'below'
+          ? '0%'
+          : '100%',
+      );
+
+      bubble.dataset
+        .anchorPlacement =
+          placement;
+      bubble.dataset
+        .anchorHorizontal =
+          best.horizontal;
+    };
+
+  const characterObserver =
+    new MutationObserver(
+      scheduleLayout,
     );
-    const measuredHeight = Math.max(bubble.scrollHeight, 180);
-    const bubbleHeight = Math.min(
-      MAX_BUBBLE_HEIGHT,
-      Math.max(180, Math.min(measuredHeight, surfaceRect.height - EDGE_PADDING * 2)),
+
+  characterObserver.observe(
+    character,
+    {
+      attributes: true,
+      attributeFilter: [
+        'style',
+        'class',
+        'data-vertical-placement',
+        'data-placement',
+      ],
+    },
+  );
+
+  const bubbleObserver =
+    new MutationObserver(
+      scheduleLayout,
     );
 
-    const charLeft = characterRect.left - surfaceRect.left;
-    const charTop = characterRect.top - surfaceRect.top;
-    const charRight = characterRect.right - surfaceRect.left;
-    const charBottom = characterRect.bottom - surfaceRect.top;
+  bubbleObserver.observe(
+    bubble,
+    {
+      attributes: true,
+      attributeFilter: [
+        'class',
+      ],
+      childList: true,
+      subtree: true,
+      characterData: true,
+    },
+  );
 
-    const upperY = charTop - bubbleHeight - BUBBLE_GAP;
-    const lowerY = charBottom + BUBBLE_GAP;
-    const rightX = charRight + BUBBLE_GAP;
-    const leftX = charLeft - bubbleWidth - BUBBLE_GAP;
-
-    const candidates: Candidate[] = [
-      { x: rightX, y: upperY, side: 'above', horizontal: 'right' },
-      { x: rightX, y: lowerY, side: 'below', horizontal: 'right' },
-      { x: leftX, y: upperY, side: 'above', horizontal: 'left' },
-      { x: leftX, y: lowerY, side: 'below', horizontal: 'left' },
-    ];
-
-    const codeRects = visibleCodeRects(surfaceRect);
-    const best = candidates
-      .map((candidate, index) => ({
-        candidate,
-        score: candidateScore(
-          candidate,
-          bubbleWidth,
-          bubbleHeight,
-          surfaceRect.width,
-          surfaceRect.height,
-          codeRects,
-        ) + index * 0.01,
-      }))
-      .sort((a, b) => a.score - b.score)[0]?.candidate;
-
-    if (!best) {
-      return;
-    }
-
-    const clampedX = clamp(
-      best.x,
-      EDGE_PADDING,
-      Math.max(EDGE_PADDING, surfaceRect.width - bubbleWidth - EDGE_PADDING),
-    );
-    const clampedY = clamp(
-      best.y,
-      EDGE_PADDING,
-      Math.max(EDGE_PADDING, surfaceRect.height - bubbleHeight - EDGE_PADDING),
+  const resizeObserver =
+    new ResizeObserver(
+      scheduleLayout,
     );
 
-    character.dataset.bubbleSide = best.side;
-    character.dataset.bubbleHorizontal = best.horizontal;
-    character.style.setProperty(
-      '--tutor-bubble-left',
-      `${Math.round(clampedX - charLeft)}px`,
+  resizeObserver.observe(
+    surface,
+  );
+  resizeObserver.observe(
+    character,
+  );
+  resizeObserver.observe(
+    bubble,
+  );
+
+  window.addEventListener(
+    'resize',
+    scheduleLayout,
+  );
+  window.addEventListener(
+    'ai-ide-tutor-layout',
+    scheduleLayout,
+  );
+  window.addEventListener(
+    'ai-ide-reader-viewport',
+    scheduleLayout,
+  );
+
+  window.visualViewport
+    ?.addEventListener(
+      'resize',
+      scheduleLayout,
     );
-    character.style.setProperty(
-      '--tutor-bubble-top',
-      `${Math.round(clampedY - charTop)}px`,
+  window.visualViewport
+    ?.addEventListener(
+      'scroll',
+      scheduleLayout,
     );
-  };
 
-  const characterObserver = new MutationObserver(scheduleLayout);
-  characterObserver.observe(character, {
-    attributes: true,
-    attributeFilter: ['style', 'class', 'data-vertical-placement', 'data-placement'],
-  });
-
-  const bubbleObserver = new MutationObserver(scheduleLayout);
-  bubbleObserver.observe(bubble, {
-    attributes: true,
-    attributeFilter: ['class'],
-    childList: true,
-    subtree: true,
-    characterData: true,
-  });
-
-  const resizeObserver = new ResizeObserver(scheduleLayout);
-  resizeObserver.observe(surface);
-  resizeObserver.observe(bubble);
-
-  window.addEventListener('resize', scheduleLayout);
+  syncBubbleParent();
   scheduleLayout();
 }
 
-function visibleCodeRects(surfaceRect: DOMRect): RectLike[] {
-  const spans = Array.from(
-    document.querySelectorAll<HTMLElement>('.monaco-editor .view-lines .view-line > span'),
-  );
+function getSafeBounds(
+  surfaceRect: DOMRect,
+): SafeBounds {
+  const viewportWidth =
+    window.visualViewport
+      ?.width
+      ?? window.innerWidth;
+  const viewportHeight =
+    window.visualViewport
+      ?.height
+      ?? window.innerHeight;
+  const viewportOffsetLeft =
+    window.visualViewport
+      ?.offsetLeft
+      ?? 0;
+  const viewportOffsetTop =
+    window.visualViewport
+      ?.offsetTop
+      ?? 0;
 
-  return spans
-    .map((span) => span.getBoundingClientRect())
-    .filter((rect) => (
-      rect.width > 2
-      && rect.height > 2
-      && rect.bottom >= surfaceRect.top
-      && rect.top <= surfaceRect.bottom
-    ))
-    .map((rect) => ({
-      left: rect.left - surfaceRect.left,
-      top: rect.top - surfaceRect.top,
-      right: rect.right - surfaceRect.left,
-      bottom: rect.bottom - surfaceRect.top,
-      width: rect.width,
-      height: rect.height,
-    }));
-}
+  const visibleViewportLeft =
+    viewportOffsetLeft;
+  const visibleViewportTop =
+    viewportOffsetTop;
+  const visibleViewportRight =
+    visibleViewportLeft
+      + viewportWidth;
+  const visibleViewportBottom =
+    visibleViewportTop
+      + viewportHeight;
 
-function candidateScore(
-  candidate: Candidate,
-  width: number,
-  height: number,
-  surfaceWidth: number,
-  surfaceHeight: number,
-  codeRects: RectLike[],
-): number {
-  const rect: RectLike = {
-    left: candidate.x,
-    top: candidate.y,
-    right: candidate.x + width,
-    bottom: candidate.y + height,
-    width,
-    height,
+  const visibleLeft =
+    Math.max(
+      surfaceRect.left,
+      visibleViewportLeft,
+    );
+  const visibleTop =
+    Math.max(
+      surfaceRect.top,
+      visibleViewportTop,
+    );
+  const visibleRight =
+    Math.min(
+      surfaceRect.right,
+      visibleViewportRight,
+    );
+  const visibleBottom =
+    Math.min(
+      surfaceRect.bottom,
+      visibleViewportBottom,
+    );
+
+  const left =
+    Math.max(
+      EDGE_PADDING,
+      visibleLeft
+        - surfaceRect.left
+        + EDGE_PADDING,
+    );
+  const top =
+    Math.max(
+      EDGE_PADDING,
+      visibleTop
+        - surfaceRect.top
+        + EDGE_PADDING,
+    );
+  const right =
+    Math.min(
+      surfaceRect.width
+        - EDGE_PADDING,
+      visibleRight
+        - surfaceRect.left
+        - EDGE_PADDING,
+    );
+  const bottom =
+    Math.min(
+      surfaceRect.height
+        - EDGE_PADDING,
+      visibleBottom
+        - surfaceRect.top
+        - EDGE_PADDING,
+    );
+
+  return {
+    left,
+    top,
+    right:
+      Math.max(
+        left,
+        right,
+      ),
+    bottom:
+      Math.max(
+        top,
+        bottom,
+      ),
+    width:
+      Math.max(
+        0,
+        right - left,
+      ),
+    height:
+      Math.max(
+        0,
+        bottom - top,
+      ),
   };
-
-  const overflow =
-    Math.max(0, -rect.left)
-    + Math.max(0, -rect.top)
-    + Math.max(0, rect.right - surfaceWidth)
-    + Math.max(0, rect.bottom - surfaceHeight);
-
-  let codeOverlap = 0;
-  for (const codeRect of codeRects) {
-    codeOverlap += overlapArea(rect, codeRect);
-  }
-
-  return overflow * 10000 + codeOverlap;
 }
 
-function overlapArea(a: RectLike, b: RectLike): number {
-  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
-  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+function visibleCodeRects(
+  surfaceRect: DOMRect,
+): RectLike[] {
+  const elements =
+    Array.from(
+      document
+        .querySelectorAll<HTMLElement>(
+          [
+            '.monaco-editor .view-lines .view-line > span',
+            '.reader-code-line .reader-line-content',
+          ].join(','),
+        ),
+    );
+
+  return elements
+    .map(
+      (element) =>
+        element
+          .getBoundingClientRect(),
+    )
+    .filter(
+      (rect) => (
+        rect.width > 2
+        && rect.height > 2
+        && rect.bottom
+          >= surfaceRect.top
+        && rect.top
+          <= surfaceRect.bottom
+        && rect.right
+          >= surfaceRect.left
+        && rect.left
+          <= surfaceRect.right
+      ),
+    )
+    .map(
+      (rect) => ({
+        left:
+          rect.left
+            - surfaceRect.left,
+        top:
+          rect.top
+            - surfaceRect.top,
+        right:
+          rect.right
+            - surfaceRect.left,
+        bottom:
+          rect.bottom
+            - surfaceRect.top,
+        width: rect.width,
+        height: rect.height,
+      }),
+    );
+}
+
+function overlapArea(
+  a: RectLike,
+  b: RectLike,
+): number {
+  const width =
+    Math.max(
+      0,
+      Math.min(
+        a.right,
+        b.right,
+      )
+        - Math.max(
+          a.left,
+          b.left,
+        ),
+    );
+  const height =
+    Math.max(
+      0,
+      Math.min(
+        a.bottom,
+        b.bottom,
+      )
+        - Math.max(
+          a.top,
+          b.top,
+        ),
+    );
+
   return width * height;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+function clamp(
+  value: number,
+  min: number,
+  max: number,
+): number {
+  return Math.min(
+    max,
+    Math.max(
+      min,
+      value,
+    ),
+  );
 }
 
 installTutorBubbleLayout();
