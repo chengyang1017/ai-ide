@@ -1,0 +1,56 @@
+name: Fix jump message language
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-jump-message-language.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Localize jump-to-cursor speech
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/main.ts')
+          text = path.read_text(encoding='utf-8')
+          old = """    speech: isRealProject
+      ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`
+      : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。',"""
+          new = """    speech: preferredVoiceLanguage.toLowerCase().startsWith('en')
+      ? (isRealProject
+          ? `I'm now at ${editorController.path}, line ${position.lineNumber}. Next, the AI can decide where to navigate on its own.`
+          : 'This is a demo file. Open a project first, and I can move through your real code.')
+      : (isRealProject
+          ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`
+          : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。'),"""
+          if old not in text:
+              raise SystemExit('jump speech anchor not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Verify
+        run: |
+          grep -F "I'm now at" src/main.ts
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Commit fix and remove workflow
+        run: |
+          git rm .github/workflows/fix-jump-message-language.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: localize jump-to-cursor tutor speech"
+          git push
