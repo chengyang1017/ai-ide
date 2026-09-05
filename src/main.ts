@@ -51,8 +51,8 @@ app.innerHTML = `
           <summary title="语音设置">⚙ 语音设置</summary>
           <div class="toolbar-menu-panel voice-settings-panel">
             <label>
-              <span>语言</span>
-              <select id="voice-language" class="voice-language" title="语音语言">
+              <span>AI / 语音</span>
+              <select id="voice-language" class="voice-language" title="AI 输出与语音语言">
                 <option value="zh-CN">中文（简体）</option>
                 <option value="en-US">English (US)</option>
               </select>
@@ -589,7 +589,7 @@ async function askTutorQuestion(): Promise<void> {
       column: teaching.column,
       selectedText: `用户在老师讲解过程中插话提问：${question}\n\n老师刚才正在讲：${teaching.speech}\n\n当前代码：${context.selectedText}`,
       nearbyCode: `${context.nearbyCode}\n\n请先直接回答用户的问题，再用一两句话说明它和刚才讲解内容的关系。不要重新从头讲整段代码。`,
-    });
+    }, preferredVoiceLanguage);
     await characterController.presentQuestionAnswer(result.explanation);
     tutorQuestionInput.value = '';
   } catch (error) {
@@ -1580,7 +1580,7 @@ semanticAiTourButton.addEventListener('click', async () => {
   tutorStatus.textContent = `Dart Analyzer 正在识别当前函数并建立 “${focus.query}” 的真实调用图…`;
 
   try {
-    const plan = await window.tutorIde.planDartSemanticTour(focus, mode);
+    const plan = await window.tutorIde.planDartSemanticTour(focus, mode, preferredVoiceLanguage);
     if (sequence !== semanticAiTourSequence) {
       return;
     }
@@ -1817,7 +1817,7 @@ explainCurrentCodeButton.addEventListener('click', async () => {
     : `AI 正在理解 ${context.filePath}:${context.line}…`;
 
   try {
-    const result = await window.tutorIde.explainCurrentCode(context);
+    const result = await window.tutorIde.explainCurrentCode(context, preferredVoiceLanguage);
     if (sequence !== currentExplainSequence) {
       return;
     }
@@ -1882,7 +1882,7 @@ aiTourButton.addEventListener('click', async () => {
     : 'AI 正在理解当前选中的代码…';
 
   try {
-    const plan = await window.tutorIde.planTutorTour(focus);
+    const plan = await window.tutorIde.planTutorTour(focus, preferredVoiceLanguage);
     if (sequence !== aiTourSequence) {
       return;
     }

@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('tutorIde', {
   hasOpenAiKey: () => ipcRenderer.invoke('ai:has-key'),
   setOpenAiKey: (apiKey) => ipcRenderer.invoke('ai:set-key', apiKey),
   clearOpenAiKey: () => ipcRenderer.invoke('ai:clear-key'),
-  explainCurrentCode: (context) => ipcRenderer.invoke('ai:explain-current-code', context),
-  planTutorTour: (focus) => ipcRenderer.invoke('ai:plan-tour', focus),
-  planDartSemanticTour: (focus, mode) => ipcRenderer.invoke('ai:plan-dart-semantic-tour', focus, mode),
+  explainCurrentCode: (context, outputLanguage) => ipcRenderer.invoke('ai:explain-current-code', context, outputLanguage),
+  planTutorTour: (focus, outputLanguage) => ipcRenderer.invoke('ai:plan-tour', focus, outputLanguage),
+  planDartSemanticTour: (focus, mode, outputLanguage) => ipcRenderer.invoke('ai:plan-dart-semantic-tour', focus, mode, outputLanguage),
 });

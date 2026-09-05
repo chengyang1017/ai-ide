@@ -141,9 +141,9 @@ declare global {
       hasOpenAiKey(): Promise<boolean>;
       setOpenAiKey(apiKey: string): Promise<boolean>;
       clearOpenAiKey(): Promise<boolean>;
-      explainCurrentCode(context: CurrentCodeContext): Promise<CurrentCodeExplanation>;
-      planTutorTour(focus: TutorFocus): Promise<AiTutorPlan>;
-      planDartSemanticTour(focus: SemanticFocus, mode: SemanticTutorMode): Promise<SemanticAiTutorPlan>;
+      explainCurrentCode(context: CurrentCodeContext, outputLanguage: string): Promise<CurrentCodeExplanation>;
+      planTutorTour(focus: TutorFocus, outputLanguage: string): Promise<AiTutorPlan>;
+      planDartSemanticTour(focus: SemanticFocus, mode: SemanticTutorMode, outputLanguage: string): Promise<SemanticAiTutorPlan>;
     };
   }
 }

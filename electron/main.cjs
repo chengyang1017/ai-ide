@@ -734,7 +734,7 @@ ipcMain.handle('ai:clear-key', async () => {
   return true;
 });
 
-ipcMain.handle('ai:explain-current-code', async (_event, rawContext) => {
+ipcMain.handle('ai:explain-current-code', async (_event, rawContext, rawOutputLanguage) => {
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
   }
@@ -744,7 +744,7 @@ ipcMain.handle('ai:explain-current-code', async (_event, rawContext) => {
   }
 
   const context = validateCurrentCodeContext(rawContext);
-  const explanation = await requestCurrentCodeExplanation(context);
+  const explanation = await requestCurrentCodeExplanation(context, rawOutputLanguage);
 
   return {
     explanation,
@@ -765,7 +765,7 @@ ipcMain.handle('ai:explain-current-code', async (_event, rawContext) => {
   };
 });
 
-ipcMain.handle('ai:plan-tour', async (_event, rawFocus) => {
+ipcMain.handle('ai:plan-tour', async (_event, rawFocus, rawOutputLanguage) => {
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
   }
@@ -776,7 +776,7 @@ ipcMain.handle('ai:plan-tour', async (_event, rawFocus) => {
 
   const focus = validateTutorFocus(rawFocus);
   const candidates = await buildTutorCandidates(focus);
-  const aiPlan = await requestTutorPlan(focus, candidates);
+  const aiPlan = await requestTutorPlan(focus, candidates, rawOutputLanguage);
 
   return {
     summary: aiPlan.summary,
@@ -801,7 +801,7 @@ ipcMain.handle('ai:plan-tour', async (_event, rawFocus) => {
 });
 
 
-ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode) => {
+ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode, rawOutputLanguage) => {
   if (!currentProjectRoot) {
     throw new Error('请先打开一个项目。');
   }
@@ -854,6 +854,7 @@ ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode) =
     mode,
     symbolName: graph.symbolName || focus.query,
     candidates,
+    outputLanguage: rawOutputLanguage,
   });
 
   return {
@@ -1170,7 +1171,7 @@ async function readSnippet(relativePath, focusLine, radius) {
   };
 }
 
-async function requestSemanticTutorPlan({ focus, mode, symbolName, candidates }) {
+async function requestSemanticTutorPlan({ focus, mode, symbolName, candidates, outputLanguage }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
 
@@ -1187,7 +1188,7 @@ async function requestSemanticTutorPlan({ focus, mode, symbolName, candidates })
         input: [
           {
             role: 'system',
-            content: localizeTutorPrompt(SEMANTIC_AI_TUTOR_SYSTEM_PROMPT),
+            content: localizeTutorPrompt(SEMANTIC_AI_TUTOR_SYSTEM_PROMPT, outputLanguage),
           },
           {
             role: 'user',
@@ -1271,7 +1272,7 @@ function semanticRelationLabel(relation) {
   return String(relation || 'unknown');
 }
 
-async function requestCurrentCodeExplanation(context) {
+async function requestCurrentCodeExplanation(context, outputLanguage) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
 
@@ -1289,7 +1290,7 @@ async function requestCurrentCodeExplanation(context) {
         input: [
           {
             role: 'system',
-            content: localizeTutorPrompt(CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT),
+            content: localizeTutorPrompt(CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT, outputLanguage),
           },
           {
             role: 'user',
@@ -1343,7 +1344,7 @@ ${context.nearbyCode || '(无)'}
 请直接解释用户现在正在看的这里。先说“这段代码在做什么”，再解释关键语法/数据流/调用关系；如果上下文不足以证明某个结论，要明确说不知道，不要脑补项目其他文件。`;
 }
 
-async function requestTutorPlan(focus, candidates) {
+async function requestTutorPlan(focus, candidates, outputLanguage) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
 
@@ -1360,7 +1361,7 @@ async function requestTutorPlan(focus, candidates) {
         input: [
           {
             role: 'system',
-            content: localizeTutorPrompt(AI_TUTOR_SYSTEM_PROMPT),
+            content: localizeTutorPrompt(AI_TUTOR_SYSTEM_PROMPT, outputLanguage),
           },
           {
             role: 'user',
@@ -1452,8 +1453,10 @@ function validateAiPlan(plan, candidates) {
   }
 }
 
-function localizeTutorPrompt(prompt) {
-  const language = String(persistentState.voice?.language || 'zh-CN').toLowerCase();
+function localizeTutorPrompt(prompt, requestedLanguage = '') {
+  const language = String(
+    requestedLanguage || persistentState.voice?.language || 'zh-CN',
+  ).toLowerCase();
   if (!language.startsWith('en')) {
     return prompt;
   }
