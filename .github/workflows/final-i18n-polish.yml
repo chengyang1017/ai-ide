@@ -1,0 +1,72 @@
+name: Final i18n polish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-i18n-polish.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Patch final visible English strings
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime = Path('src/ui/runtime_i18n.ts')
+          text = runtime.read_text(encoding='utf-8')
+          if "['随时问老师…', 'Ask the AI tutor anytime…']," not in text:
+              marker = "  ['更多工具', 'More Tools'],\n]);"
+              replacement = "  ['更多工具', 'More Tools'],\n  ['随时问老师…', 'Ask the AI tutor anytime…'],\n]);"
+              if marker not in text:
+                  raise SystemExit('runtime i18n insertion marker missing')
+              text = text.replace(marker, replacement, 1)
+          runtime.write_text(text, encoding='utf-8')
+
+          css = Path('src/reader/tutor_dialog.css')
+          text = css.read_text(encoding='utf-8')
+          if ':root[lang^="en"] .speech-bubble.tutor-dialog-card::before' not in text:
+              marker = '''.speech-bubble.tutor-dialog-card::before {
+            content: "✦  AI 老师";
+          '''
+              replacement = '''.speech-bubble.tutor-dialog-card::before {
+            content: "✦  AI 老师";
+          '''
+              if marker not in text:
+                  raise SystemExit('tutor dialog label marker missing')
+              block_end = text.find('\n}\n', text.find(marker))
+              if block_end < 0:
+                  raise SystemExit('tutor dialog label block end missing')
+              block_end += 3
+              english_rule = '''
+          :root[lang^="en"] .speech-bubble.tutor-dialog-card::before {
+            content: "✦  AI Tutor";
+          }
+          '''
+              text = text[:block_end] + english_rule + text[block_end:]
+          css.write_text(text, encoding='utf-8')
+          PY
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Commit verified polish
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ui/runtime_i18n.ts src/reader/tutor_dialog.css
+          git commit -m "fix: remove final Chinese labels from English UI"
+          git push origin HEAD:main
