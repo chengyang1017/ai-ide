@@ -1,0 +1,227 @@
+name: Apply UI i18n final
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-ui-i18n-final.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply localization source patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Extract the already-reviewed runtime translation table.
+          workflow = Path('.github/workflows/finish-ui-i18n.yml').read_text(encoding='utf-8')
+          a = "          cat > src/ui/runtime_i18n.ts <<'EOF'\n"
+          b = "\n          EOF\n"
+          start = workflow.find(a)
+          end = workflow.find(b, start + len(a))
+          if start < 0 or end < 0:
+              raise SystemExit('translation template missing')
+          payload = workflow[start + len(a):end]
+          payload = '\n'.join(line[10:] if line.startswith('          ') else line for line in payload.splitlines()) + '\n'
+          Path('src/ui').mkdir(parents=True, exist_ok=True)
+          Path('src/ui/runtime_i18n.ts').write_text(payload, encoding='utf-8')
+
+          def read(path): return Path(path).read_text(encoding='utf-8')
+          def write(path, text): Path(path).write_text(text, encoding='utf-8')
+          def require_sub(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'{label} missing')
+              return text.replace(old, new, 1)
+
+          # main.ts: install runtime translator.
+          p = 'src/main.ts'; t = read(p)
+          if "import './ui/runtime_i18n';" not in t:
+              t = require_sub(t, "import './styles.css';", "import './styles.css';\nimport './ui/runtime_i18n';", 'main import')
+          write(p, t)
+
+          # Agent and terminal: project detection must survive translated badge text.
+          for p, fn in [
+              ('src/agent/agent_panel.ts', 'isRealProjectOpen'),
+              ('src/agent/agent_follow.ts', 'isRealProjectOpen'),
+              ('src/terminal/terminal_panel.ts', 'isLocalProjectOpen'),
+          ]:
+              t = read(p)
+              pattern = re.compile(
+                  rf"function {fn}\(\): boolean \{{\s*return document\s*\.querySelector<HTMLElement>\('#workspace-badge'\)\s*\?\.textContent\s*\?\.trim\(\) === '真实项目';\s*\}}",
+                  re.S,
+              )
+              replacement = f"""function {fn}(): boolean {{
+            const badge = document
+              .querySelector<HTMLElement>('#workspace-badge')
+              ?.textContent
+              ?.trim() ?? '';
+            return badge === '真实项目' || badge === 'Real Project';
+          }}"""
+              t, count = pattern.subn(replacement, t, count=1)
+              if count != 1: raise SystemExit(f'{p} badge matcher failed')
+              write(p, t)
+
+          # File manager: bilingual project badge and language-independent dirty state.
+          p = 'src/project/file_manager.ts'; t = read(p)
+          pattern = re.compile(r"function isRealProjectOpen\(\): boolean \{\s*return \(\s*document\.querySelector<HTMLElement>\(\s*'#workspace-badge',\s*\)\?\.textContent\?\.trim\(\)\s*=== '真实项目'\s*\);\s*\}", re.S)
+          t, count = pattern.subn("""function isRealProjectOpen(): boolean {
+            const badge = document.querySelector<HTMLElement>(
+              '#workspace-badge',
+            )?.textContent?.trim() ?? '';
+            return badge === '真实项目' || badge === 'Real Project';
+          }""", t, count=1)
+          if count != 1: raise SystemExit('file manager badge matcher failed')
+          dirty = re.compile(r"function hasUnsavedChanges\(\): boolean \{.*?\n\}", re.S)
+          t, count = dirty.subn("""function hasUnsavedChanges(): boolean {
+            return document.querySelector<HTMLElement>(
+              '#editor-tab-dot',
+            )?.dataset.dirty === 'true';
+          }""", t, count=1)
+          if count != 1: raise SystemExit('file manager dirty matcher failed')
+          write(p, t)
+
+          p = 'src/project/file_manager_multiselect.ts'; t = read(p)
+          dirty = re.compile(r"function hasUnsavedChanges\(\): boolean \{.*?\n\}", re.S)
+          t, count = dirty.subn("""function hasUnsavedChanges(): boolean {
+            return document
+              .querySelector<HTMLElement>('#editor-tab-dot')
+              ?.dataset.dirty === 'true';
+          }""", t, count=1)
+          if count != 1: raise SystemExit('multiselect dirty matcher failed')
+          write(p, t)
+
+          p = 'src/project/file_manager_create_dialog.ts'; t = read(p)
+          pattern = re.compile(r"function realProjectOpen\(\): boolean \{\s*return document\.querySelector<HTMLElement>\(\s*'#workspace-badge',\s*\)\?\.textContent\?\.trim\(\) === '真实项目';\s*\}", re.S)
+          t, count = pattern.subn("""function realProjectOpen(): boolean {
+            const badge = document.querySelector<HTMLElement>(
+              '#workspace-badge',
+            )?.textContent?.trim() ?? '';
+            return badge === '真实项目' || badge === 'Real Project';
+          }""", t, count=1)
+          if count != 1: raise SystemExit('create dialog badge matcher failed')
+          t = require_sub(t, "if (text.includes('新建文件夹')) {", "if (text.includes('新建文件夹') || text.includes('New Folder')) {", 'new folder matcher')
+          t = require_sub(t, "if (text.includes('新建文件')) {", "if (text.includes('新建文件') || text.includes('New File')) {", 'new file matcher')
+          write(p, t)
+
+          # Reader collaboration: same project must be recognized after UI translation.
+          p = 'src/reader/reader_collab.ts'; t = read(p)
+          pattern = re.compile(
+              r"workspaceBadge\s*=== '真实项目'\s*&& root\s*&& root\s*!== '尚未打开真实项目'",
+              re.S,
+          )
+          replacement = """(workspaceBadge === '真实项目'
+              || workspaceBadge === 'Real Project')
+              && root
+              && root !== '尚未打开真实项目'
+              && root !== 'No local project open'"""
+          t, count = pattern.subn(replacement, t, count=1)
+          if count != 1: raise SystemExit('reader workspace matcher failed')
+          write(p, t)
+
+          # Android session restoration: do not depend on Chinese UI text.
+          p = 'src/android/android_reader_session.ts'; t = read(p)
+          pattern = re.compile(r"const realProject =\s*document\.querySelector<HTMLElement>\(\s*'#workspace-badge',\s*\)\?\.textContent\?\.trim\(\)\s*=== '真实项目';", re.S)
+          replacement = """const badge =
+              document.querySelector<HTMLElement>(
+                '#workspace-badge',
+              )?.textContent?.trim() ?? '';
+            const realProject =
+              badge === '真实项目'
+                || badge === 'Real Project';"""
+          t, count = pattern.subn(replacement, t, count=1)
+          if count:
+              write(p, t)
+
+          # Fixed robot speech follows AI/voice language, not UI language.
+          p = 'src/character/character_controller.ts'; t = read(p)
+          if 'function tutorText(' not in t:
+              helper = """
+          function tutorText(
+            chinese: string,
+            english: string,
+          ): string {
+            const language = document
+              .querySelector<HTMLSelectElement>('#voice-language')
+              ?.value
+              ?.toLowerCase() ?? '';
+            return language.startsWith('en') ? english : chinese;
+          }
+
+          """
+              t = require_sub(t, 'type AgentEditFocusDetail = {', helper + 'type AgentEditFocusDetail = {', 'character helper')
+          t = require_sub(t, 'this.bubble.textContent = `你问：${question}`;', "this.bubble.textContent = `${tutorText('你问：', 'You asked: ')}${question}`;", 'question prefix')
+          t = require_sub(t, "message = '讲解已打断',", "message = tutorText('讲解已打断', 'Explanation interrupted'),", 'interrupt label')
+          t = require_sub(t, "message = '等待操作',", "message = tutorText('等待操作', 'Waiting for action'),", 'clear label')
+          old = """    const verb =
+              detail.type === 'created'
+                ? '新建这段代码'
+                : detail.oldPreview && detail.newPreview
+                  ? '把这里的旧代码换成新的实现'
+                  : detail.oldPreview
+                    ? '删掉这里的旧代码'
+                    : '在这里加入新代码';
+
+            await this.moveTo({
+              filePath: detail.filePath,
+              line: Math.max(1, detail.line),
+              column: 1,
+              speech: `我正在${verb}。你可以直接看编辑器里的红色删除和绿色新增。`,"""
+          new = """    const speech =
+              detail.type === 'created'
+                ? tutorText(
+                    '我正在新建这段代码。你可以直接看编辑器里的红色删除和绿色新增。',
+                    'I am adding this code. You can watch the red deletions and green additions directly in the editor.',
+                  )
+                : detail.oldPreview && detail.newPreview
+                  ? tutorText(
+                      '我正在把这里的旧代码换成新的实现。你可以直接看编辑器里的红色删除和绿色新增。',
+                      'I am replacing the old code with the new implementation. You can watch the red deletions and green additions directly in the editor.',
+                    )
+                  : detail.oldPreview
+                    ? tutorText(
+                        '我正在删掉这里的旧代码。你可以直接看编辑器里的红色删除和绿色新增。',
+                        'I am removing the old code here. You can watch the red deletions and green additions directly in the editor.',
+                      )
+                    : tutorText(
+                        '我正在这里加入新代码。你可以直接看编辑器里的红色删除和绿色新增。',
+                        'I am adding new code here. You can watch the red deletions and green additions directly in the editor.',
+                      );
+
+            await this.moveTo({
+              filePath: detail.filePath,
+              line: Math.max(1, detail.line),
+              column: 1,
+              speech,"""
+          t = require_sub(t, old, new, 'agent robot speech')
+          write(p, t)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Commit source only
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.ts src/ui/runtime_i18n.ts src/agent/agent_panel.ts src/agent/agent_follow.ts src/terminal/terminal_panel.ts src/project/file_manager.ts src/project/file_manager_multiselect.ts src/project/file_manager_create_dialog.ts src/reader/reader_collab.ts src/android/android_reader_session.ts src/character/character_controller.ts
+          git commit -m "feat: complete English UI localization"
+          git push origin HEAD:main
