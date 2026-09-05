@@ -19,7 +19,6 @@ export interface PersistedVoiceState {
   rate: number;
 }
 
-
 export interface AppearanceState {
   color: string;
   backgroundMode: 'solid' | 'gradient';
@@ -44,18 +43,38 @@ export interface TutorIdeAppState {
   nativeTts: boolean;
 }
 
+interface ProjectSnapshot {
+  rootPath: string;
+  projectName: string;
+  files: string[];
+  directories?: string[];
+  lastOpenFile?: string;
+}
+
+interface AgentEvent {
+  runId?: string;
+  type: string;
+  tool?: string;
+  message?: string;
+  changedFiles?: string[];
+  deletedFiles?: string[];
+}
+
+interface AgentFileChange {
+  type: 'modified' | 'created' | 'deleted';
+  path: string;
+  line: number;
+  endLine: number;
+  oldPreview: string;
+  newPreview: string;
+}
+
 export {};
 
 declare global {
   interface Window {
     tutorIde: {
-      openProject(): Promise<{
-        rootPath: string;
-        projectName: string;
-        files: string[];
-        directories?: string[];
-        lastOpenFile?: string;
-      } | null>;
+      openProject(): Promise<ProjectSnapshot | null>;
       openGitHubRepository?(url: string): Promise<{
         rootPath: string;
         projectName: string;
@@ -64,13 +83,7 @@ declare global {
         preferredFile?: string;
         message?: string;
       }>;
-      restoreProject(): Promise<{
-        rootPath: string;
-        projectName: string;
-        files: string[];
-        directories?: string[];
-        lastOpenFile: string;
-      } | null>;
+      restoreProject(): Promise<ProjectSnapshot | null>;
       readProjectFile(relativePath: string): Promise<{
         path: string;
         content: string;
@@ -85,6 +98,45 @@ declare global {
         path: string;
         bytes: number;
       }>;
+
+      createProjectFile?(relativePath: string): Promise<{ path: string }>;
+      createProjectDirectory?(relativePath: string): Promise<{ path: string }>;
+      moveProjectEntry?(
+        sourceRelativePath: string,
+        targetDirectoryRelativePath: string,
+      ): Promise<{ from: string; to: string }>;
+      deleteProjectEntry?(relativePath: string): Promise<{
+        path: string;
+        type: 'file' | 'directory';
+      }>;
+
+      startTerminal?(): Promise<{ cwd: string; shell: string }>;
+      writeTerminal?(input: string): Promise<boolean>;
+      stopTerminal?(): Promise<boolean>;
+      onTerminalData?(
+        listener: (payload: { data: string }) => void,
+      ): () => void;
+      onTerminalExit?(
+        listener: (payload: { code: number | null; signal: string | null }) => void,
+      ): () => void;
+
+      runAgent?(request: {
+        prompt: string;
+        activeFile: string;
+      }): Promise<{
+        runId: string;
+        model: string;
+        message: string;
+        changedFiles: string[];
+        deletedFiles: string[];
+        backupDirectory: string;
+      }>;
+      cancelAgent?(): Promise<boolean>;
+      onAgentEvent?(listener: (event: AgentEvent) => void): () => void;
+      startAgentFollow?(): Promise<{ root: string; cachedFiles: number }>;
+      stopAgentFollow?(): Promise<boolean>;
+      onAgentFileChange?(listener: (change: AgentFileChange) => void): () => void;
+
       watchProjectFile(relativePath: string): Promise<{ path: string }>;
       unwatchProjectFile(): Promise<boolean>;
       onProjectFileChanged(listener: (change: { path: string }) => void): () => void;
