@@ -1387,9 +1387,13 @@ jumpToCursorButton.addEventListener('click', async () => {
     line: position.lineNumber,
     column: position.column,
     action: 'point',
-    speech: isRealProject
-      ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`
-      : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。',
+    speech: preferredVoiceLanguage.toLowerCase().startsWith('en')
+      ? (isRealProject
+          ? `I'm now at ${editorController.path}, line ${position.lineNumber}. Next, the AI can decide where to navigate on its own.`
+          : 'This is a demo file. Open a project first, and I can move through your real code.')
+      : (isRealProject
+          ? `我现在真的站在 ${editorController.path} 第 ${position.lineNumber} 行。下一阶段让 AI 自己决定该跳到哪里。`
+          : '这是演示文件。先点“打开项目”，我就能进入你的真实代码。'),
   });
 });
 
