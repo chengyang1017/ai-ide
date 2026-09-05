@@ -45,6 +45,13 @@ app.innerHTML = `
 
       <div class="titlebar-right">
         <span id="tutor-status" class="tutor-status">等待打开项目</span>
+        <label class="ui-language-switch" title="界面语言 / UI language">
+          <span aria-hidden="true">🌐</span>
+          <select id="ui-language" class="ui-language-select" aria-label="界面语言">
+            <option value="zh-CN">中文</option>
+            <option value="en-US">English</option>
+          </select>
+        </label>
         <button id="voice-toggle" class="voice-button compact-button">🔊 语音</button>
 
         <details class="toolbar-menu">
@@ -357,6 +364,7 @@ const semanticAiModeSelect = requireSelect('semantic-ai-mode');
 const semanticAiTourButton = requireButton('semantic-ai-tour');
 const explainCurrentCodeButton = requireButton('explain-current-code');
 const voiceToggleButton = requireButton('voice-toggle');
+const uiLanguageSelect = requireSelect('ui-language');
 const voiceLanguageSelect = requireSelect('voice-language');
 const voiceSelect = requireSelect('voice-select');
 const voiceRateSelect = requireSelect('voice-rate');
@@ -452,6 +460,153 @@ let preferredVoiceLanguage = 'zh-CN';
 let preferredVoiceId = '';
 let preferredVoiceRate = 1;
 let voiceEnabledPreference = true;
+
+type UiLanguage = 'zh-CN' | 'en-US';
+const UI_LANGUAGE_STORAGE_KEY = 'code-tutor-ui-language';
+let preferredUiLanguage: UiLanguage =
+  window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY) === 'en-US'
+    ? 'en-US'
+    : 'zh-CN';
+
+function uiText(zh: string, en: string): string {
+  return preferredUiLanguage === 'en-US' ? en : zh;
+}
+
+function setUiText(selector: string, zh: string, en: string): void {
+  const element = document.querySelector<HTMLElement>(selector);
+  if (element) {
+    element.textContent = uiText(zh, en);
+  }
+}
+
+function localizeVoiceUiMessage(message: string): string {
+  const pairs: Array<[string, string]> = [
+    ['等待讲解', 'Ready'],
+    ['语音已关闭', 'Voice off'],
+    ['正在朗读', 'Speaking'],
+    ['语音已暂停', 'Paused'],
+    ['继续朗读', 'Speaking'],
+    ['等待下一段', 'Ready for next segment'],
+    ['当前 Electron 环境不支持系统语音', 'System voice is unavailable in this Electron environment'],
+    ['系统语音播放失败', 'System voice playback failed'],
+  ];
+  for (const [zh, en] of pairs) {
+    if (message === zh || message === en) {
+      return uiText(zh, en);
+    }
+  }
+  return message;
+}
+
+function applyUiLanguage(): void {
+  document.documentElement.lang = preferredUiLanguage === 'en-US' ? 'en' : 'zh-CN';
+  uiLanguageSelect.value = preferredUiLanguage;
+  uiLanguageSelect.title = uiText('界面语言', 'UI language');
+  uiLanguageSelect.setAttribute('aria-label', uiText('界面语言', 'UI language'));
+
+  setUiText('.brand small', 'Alpha 0.16 · 项目便签 + 外观 + Markdown 预览', 'Alpha 0.16 · Project Notes + Appearance + Markdown Preview');
+
+  const voiceSummary = document.querySelector<HTMLElement>('.toolbar-menu > summary');
+  if (voiceSummary) {
+    voiceSummary.textContent = uiText('⚙ 语音设置', '⚙ Voice Settings');
+    voiceSummary.title = uiText('语音设置', 'Voice settings');
+  }
+  const voiceLabels = Array.from(document.querySelectorAll<HTMLElement>('.voice-settings-panel label > span'));
+  if (voiceLabels[0]) voiceLabels[0].textContent = uiText('AI / 语音', 'AI / Voice');
+  if (voiceLabels[1]) voiceLabels[1].textContent = uiText('声音', 'Voice');
+  if (voiceLabels[2]) voiceLabels[2].textContent = uiText('语速', 'Speed');
+  if (voiceSelect.options[0] && voiceSelect.options[0].value === '') {
+    voiceSelect.options[0].textContent = uiText('自动选择声音', 'Auto-select voice');
+  }
+
+  appearanceSettingsButton.textContent = uiText('◐ 外观', '◐ Appearance');
+  openProjectButton.textContent = uiText('📂 打开项目', '📂 Open Project');
+  jumpToCursorButton.textContent = uiText('🤖 跳到光标', '🤖 Jump to Cursor');
+  findRelatedButton.textContent = findRelatedButton.textContent?.startsWith('■')
+    ? uiText('■ 停止寻找', '■ Stop Search')
+    : uiText('🧭 相关代码', '🧭 Related Code');
+  semanticRelatedButton.textContent = semanticRelatedButton.textContent?.startsWith('■')
+    ? uiText('■ 停止语义导航', '■ Stop Navigation')
+    : uiText('🧠 Dart 调用', '🧠 Dart Calls');
+  semanticAiTourButton.textContent = semanticAiTourButton.textContent?.startsWith('■')
+    ? uiText('■ 停止 AI 调用链', '■ Stop AI Call Chain')
+    : uiText('🧠✨ 理解函数', '🧠✨ Understand Function');
+  explainCurrentCodeButton.textContent = explainCurrentCodeButton.textContent?.startsWith('■')
+    ? uiText('■ 停止解释', '■ Stop Explanation')
+    : uiText('✨ 解释这里', '✨ Explain Here');
+  aiTourButton.textContent = aiTourButton.textContent?.startsWith('■')
+    ? uiText('■ 停止 AI 老师', '■ Stop AI Tutor')
+    : uiText('✨ 理解项目', '✨ Understand Project');
+
+  semanticAiModeSelect.title = uiText('AI 语义教学方向', 'AI semantic teaching direction');
+  if (semanticAiModeSelect.options[0]) semanticAiModeSelect.options[0].textContent = uiText('完整功能链', 'Full Call Chain');
+  if (semanticAiModeSelect.options[1]) semanticAiModeSelect.options[1].textContent = uiText('谁调用它', 'Who Calls It');
+  if (semanticAiModeSelect.options[2]) semanticAiModeSelect.options[2].textContent = uiText('它调用谁', 'What It Calls');
+
+  setUiText('.sidebar-note p', '项目便签会跟随仓库共享；支持图片、外部点击自动收起、外观壁纸和 Markdown 实时预览。', 'Project notes travel with the repository; image notes, auto-collapse, custom appearance, and live Markdown preview are supported.');
+
+  const noteHint = document.querySelector<HTMLElement>('.code-note-hint');
+  if (noteHint) {
+    noteHint.textContent = uiText('📝 双位置便签', '📝 Dual-position Notes');
+    noteHint.title = uiText('光标位置出现＋可添加代码内便签；行号旁也会出现＋，两种便签可以同时存在', 'Use + at the cursor for inline notes or + beside the line number for gutter notes. Both can coexist.');
+  }
+
+  const externalLabel = externalChangeState.querySelector<HTMLElement>('span');
+  if (externalLabel) externalLabel.textContent = uiText('⚠ 外部已修改', '⚠ Changed Externally');
+  externalReloadButton.textContent = uiText('重新加载', 'Reload');
+  externalKeepButton.textContent = uiText('保留本地', 'Keep Local');
+  setUiText('[data-markdown-mode="edit"]', '编辑', 'Edit');
+  setUiText('[data-markdown-mode="split"]', '分栏', 'Split');
+  setUiText('[data-markdown-mode="preview"]', '预览', 'Preview');
+
+  if (workspaceBadge.textContent === '真实项目' || workspaceBadge.textContent === 'Real Project') {
+    workspaceBadge.textContent = uiText('真实项目', 'Real Project');
+  } else {
+    workspaceBadge.textContent = 'Demo';
+  }
+  if (projectRoot.textContent === '尚未打开真实项目' || projectRoot.textContent === 'No project opened') {
+    projectRoot.textContent = uiText('尚未打开真实项目', 'No project opened');
+  }
+  if (tutorStatus.textContent === '等待打开项目' || tutorStatus.textContent === 'Waiting for a project') {
+    tutorStatus.textContent = uiText('等待打开项目', 'Waiting for a project');
+  }
+
+  const rawVoiceStatus = (voiceStatus.textContent ?? '').replace(/^(语音：|Voice:\s*)/, '');
+  voiceStatus.textContent = `${uiText('语音：', 'Voice: ')}${localizeVoiceUiMessage(rawVoiceStatus)}`;
+  updateVoiceToggleLabel();
+
+  setUiText('#api-key-modal .api-key-dialog-header p', '使用系统安全存储加密后保存到本机；Windows 使用 Electron safeStorage，Android 使用 Android Keystore。', 'Stored locally with OS-backed secure encryption. Windows uses Electron safeStorage; Android uses Android Keystore.');
+  apiKeyCloseButton.setAttribute('aria-label', uiText('关闭', 'Close'));
+  apiKeyClearButton.textContent = uiText('清除已保存 Key', 'Clear Saved Key');
+  apiKeyCancelButton.textContent = uiText('取消', 'Cancel');
+  apiKeySaveButton.textContent = uiText('加密保存到本机', 'Save Securely');
+
+  setUiText('#appearance-title', '外观', 'Appearance');
+  setUiText('#appearance-modal .settings-dialog-header p', '颜色、背景图片和代码可读性都保存在本机，不会污染项目。', 'Colors, backgrounds, and code readability settings stay on this device and do not modify the project.');
+  appearanceCloseButton.setAttribute('aria-label', uiText('关闭', 'Close'));
+  setUiText('#appearance-modal .appearance-background-section h3', '背景颜色', 'Background Color');
+  setUiText('[data-background-mode="solid"]', '纯色', 'Solid');
+  setUiText('[data-background-mode="gradient"]', '渐变', 'Gradient');
+
+  setUiText('.code-note-title-row strong', '📝 代码便签', '📝 Code Note');
+  setUiText('.code-note-add-image', '＋ 图片', '＋ Image');
+  setUiText('.code-note-media-hint', '可粘贴 / 拖入', 'Paste / drop');
+  setUiText('.code-note-actions > span', '点到别处会自动保存并收起', 'Click elsewhere to auto-save and close');
+  setUiText('.code-note-delete', '删除', 'Delete');
+  setUiText('.code-note-save', '保存', 'Save');
+  const noteTextarea = document.querySelector<HTMLTextAreaElement>('.code-note-textarea');
+  if (noteTextarea) noteTextarea.placeholder = uiText('写下理解、TODO、问题……', 'Write an explanation, TODO, question…');
+  const noteClose = document.querySelector<HTMLElement>('.code-note-close');
+  if (noteClose) noteClose.title = uiText('关闭便签（Esc 放弃未保存修改）', 'Close note (Esc discards unsaved changes)');
+  const noteLine = document.querySelector<HTMLElement>('.code-note-line');
+  if (noteLine && noteLine.textContent) {
+    const coordinate = noteLine.textContent.split(' · ')[0];
+    noteLine.textContent = noteLine.textContent.includes(':C')
+      ? `${coordinate} · ${uiText('代码中', 'inline')}`
+      : `${coordinate} · ${uiText('行号旁', 'gutter')}`;
+  }
+}
+
 let appearanceState: AppearanceState = {
   color: '#111318',
   backgroundMode: 'solid',
@@ -477,7 +632,7 @@ let markdownRenderSequence = 0;
 const voiceController = new VoiceController({
   character: characterElement,
   onStateChange: (_state, message) => {
-    voiceStatus.textContent = `语音：${message}`;
+    voiceStatus.textContent = `${uiText('语音：', 'Voice: ')}${localizeVoiceUiMessage(message)}`;
   },
   onVoicesChanged: (languages) => {
     renderVoiceLanguageOptions(languages);
@@ -1422,7 +1577,7 @@ findRelatedButton.addEventListener('click', async () => {
 
   const sequence = ++relatedTourSequence;
   relatedTourRunning = true;
-  findRelatedButton.textContent = '■ 停止寻找';
+  findRelatedButton.textContent = uiText('■ 停止寻找', '■ Stop Search');
   tutorStatus.textContent = `正在整个项目搜索 “${seed.query}”…`;
 
   try {
@@ -1475,7 +1630,7 @@ findRelatedButton.addEventListener('click', async () => {
   } finally {
     if (sequence === relatedTourSequence) {
       relatedTourRunning = false;
-      findRelatedButton.textContent = '🧭 老师找相关代码';
+      findRelatedButton.textContent = uiText('🧭 相关代码', '🧭 Related Code');
     }
   }
 });
@@ -1503,7 +1658,7 @@ semanticRelatedButton.addEventListener('click', async () => {
 
   const sequence = ++semanticTourSequence;
   semanticTourRunning = true;
-  semanticRelatedButton.textContent = '■ 停止语义导航';
+  semanticRelatedButton.textContent = uiText('■ 停止语义导航', '■ Stop Navigation');
   tutorStatus.textContent = `正在启动 Dart Analysis Server，分析 “${focus.query}”…`;
 
   try {
@@ -1545,7 +1700,7 @@ semanticRelatedButton.addEventListener('click', async () => {
   } finally {
     if (sequence === semanticTourSequence) {
       semanticTourRunning = false;
-      semanticRelatedButton.textContent = '🧠 Dart 语义调用';
+      semanticRelatedButton.textContent = uiText('🧠 Dart 调用', '🧠 Dart Calls');
     }
   }
 });
@@ -1579,7 +1734,7 @@ semanticAiTourButton.addEventListener('click', async () => {
   const mode = semanticAiModeSelect.value as SemanticTutorMode;
   const sequence = ++semanticAiTourSequence;
   semanticAiTourRunning = true;
-  semanticAiTourButton.textContent = '■ 停止 AI 调用链';
+  semanticAiTourButton.textContent = uiText('■ 停止 AI 调用链', '■ Stop AI Call Chain');
   semanticAiModeSelect.disabled = true;
   tutorStatus.textContent = `Dart Analyzer 正在识别当前函数并建立 “${focus.query}” 的真实调用图…`;
 
@@ -1621,7 +1776,7 @@ semanticAiTourButton.addEventListener('click', async () => {
   } finally {
     if (sequence === semanticAiTourSequence) {
       semanticAiTourRunning = false;
-      semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
+      semanticAiTourButton.textContent = uiText('🧠✨ 理解函数', '🧠✨ Understand Function');
       semanticAiModeSelect.disabled = false;
     }
   }
@@ -1633,6 +1788,15 @@ voiceToggleButton.addEventListener('click', () => {
   updateVoiceToggleLabel();
   void persistVoicePreferences();
 });
+
+uiLanguageSelect.addEventListener('change', () => {
+  preferredUiLanguage = uiLanguageSelect.value === 'en-US' ? 'en-US' : 'zh-CN';
+  window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, preferredUiLanguage);
+  applyUiLanguage();
+  updateEditorSaveState();
+});
+
+applyUiLanguage();
 
 voiceLanguageSelect.addEventListener('change', () => {
   preferredVoiceLanguage = voiceLanguageSelect.value;
@@ -1815,7 +1979,7 @@ explainCurrentCodeButton.addEventListener('click', async () => {
   const sequence = ++currentExplainSequence;
   currentExplainRunning = true;
   explainCurrentCodeButton.disabled = false;
-  explainCurrentCodeButton.textContent = '■ 停止解释';
+  explainCurrentCodeButton.textContent = uiText('■ 停止解释', '■ Stop Explanation');
   tutorStatus.textContent = context.query
     ? `AI 正在理解 ${context.filePath}:${context.line} 的 “${context.query}”…`
     : `AI 正在理解 ${context.filePath}:${context.line}…`;
@@ -1848,7 +2012,7 @@ explainCurrentCodeButton.addEventListener('click', async () => {
     if (sequence === currentExplainSequence) {
       currentExplainRunning = false;
       explainCurrentCodeButton.disabled = !isRealProject;
-      explainCurrentCodeButton.textContent = '✨ 解释这里';
+      explainCurrentCodeButton.textContent = uiText('✨ 解释这里', '✨ Explain Here');
     }
   }
 });
@@ -1880,7 +2044,7 @@ aiTourButton.addEventListener('click', async () => {
   stopSemanticAiTour('已切换到 AI 教学路线');
   const sequence = ++aiTourSequence;
   aiTourRunning = true;
-  aiTourButton.textContent = '■ 停止 AI 老师';
+  aiTourButton.textContent = uiText('■ 停止 AI 老师', '■ Stop AI Tutor');
   tutorStatus.textContent = focus.query
     ? `AI 正在理解 “${focus.query}” 在项目里的关系…`
     : 'AI 正在理解当前选中的代码…';
@@ -1923,7 +2087,7 @@ aiTourButton.addEventListener('click', async () => {
   } finally {
     if (sequence === aiTourSequence) {
       aiTourRunning = false;
-      aiTourButton.textContent = '✨ AI 老师理解项目';
+      aiTourButton.textContent = uiText('✨ 理解项目', '✨ Understand Project');
     }
   }
 });
@@ -1948,7 +2112,7 @@ async function saveCurrentFile(): Promise<void> {
   const path = editorController.path;
   const content = editorController.getCurrentContent();
   tutorStatus.textContent = `正在保存 ${path}…`;
-  editorSaveState.textContent = '保存中…';
+  editorSaveState.textContent = uiText('保存中…', 'Saving…');
 
   try {
     const result = await window.tutorIde.writeProjectFile(path, content);
@@ -2045,13 +2209,13 @@ function interruptTutorActivities(message: string): void {
   tutorQuestionRunning = false;
   tutorQuestionInput.disabled = false;
 
-  findRelatedButton.textContent = '🧭 老师找相关代码';
-  semanticRelatedButton.textContent = '🧠 Dart 语义调用';
-  semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
+  findRelatedButton.textContent = uiText('🧭 相关代码', '🧭 Related Code');
+  semanticRelatedButton.textContent = uiText('🧠 Dart 调用', '🧠 Dart Calls');
+  semanticAiTourButton.textContent = uiText('🧠✨ 理解函数', '🧠✨ Understand Function');
   semanticAiModeSelect.disabled = false;
-  aiTourButton.textContent = '✨ AI 老师理解项目';
+  aiTourButton.textContent = uiText('✨ 理解项目', '✨ Understand Project');
   explainCurrentCodeButton.disabled = !isRealProject;
-  explainCurrentCodeButton.textContent = '✨ 解释这里';
+  explainCurrentCodeButton.textContent = uiText('✨ 解释这里', '✨ Explain Here');
 
   characterController.interrupt(message);
   tutorStatus.textContent = message;
@@ -2061,7 +2225,7 @@ function cancelCurrentExplanation(): void {
   currentExplainSequence += 1;
   currentExplainRunning = false;
   explainCurrentCodeButton.disabled = !isRealProject;
-  explainCurrentCodeButton.textContent = '✨ 解释这里';
+  explainCurrentCodeButton.textContent = uiText('✨ 解释这里', '✨ Explain Here');
 }
 
 function stopRelatedTour(message: string): void {
@@ -2069,7 +2233,7 @@ function stopRelatedTour(message: string): void {
   cancelCurrentExplanation();
   relatedTourSequence += 1;
   relatedTourRunning = false;
-  findRelatedButton.textContent = '🧭 老师找相关代码';
+  findRelatedButton.textContent = uiText('🧭 相关代码', '🧭 Related Code');
   tutorStatus.textContent = message;
 }
 
@@ -2078,7 +2242,7 @@ function stopSemanticTour(message: string): void {
   cancelCurrentExplanation();
   semanticTourSequence += 1;
   semanticTourRunning = false;
-  semanticRelatedButton.textContent = '🧠 Dart 语义调用';
+  semanticRelatedButton.textContent = uiText('🧠 Dart 调用', '🧠 Dart Calls');
   tutorStatus.textContent = message;
 }
 
@@ -2087,7 +2251,7 @@ function stopSemanticAiTour(message: string): void {
   cancelCurrentExplanation();
   semanticAiTourSequence += 1;
   semanticAiTourRunning = false;
-  semanticAiTourButton.textContent = '🧠✨ AI 理解函数';
+  semanticAiTourButton.textContent = uiText('🧠✨ 理解函数', '🧠✨ Understand Function');
   semanticAiModeSelect.disabled = false;
   tutorStatus.textContent = message;
 }
@@ -2097,7 +2261,7 @@ function stopAiTour(message: string): void {
   cancelCurrentExplanation();
   aiTourSequence += 1;
   aiTourRunning = false;
-  aiTourButton.textContent = '✨ AI 老师理解项目';
+  aiTourButton.textContent = uiText('✨ 理解项目', '✨ Understand Project');
   tutorStatus.textContent = message;
 }
 
@@ -2180,8 +2344,8 @@ async function persistVoicePreferences(): Promise<void> {
 
 function updateVoiceToggleLabel(): void {
   voiceToggleButton.textContent = voiceEnabledPreference
-    ? '🔊 语音开启'
-    : '🔇 语音关闭';
+    ? uiText('🔊 语音开启', '🔊 Voice On')
+    : uiText('🔇 语音关闭', '🔇 Voice Off');
 }
 
 
@@ -2877,7 +3041,7 @@ async function activateRealProject(
   isRealProject = true;
   projectName.textContent = `▾ ${result.projectName}`;
   projectRoot.textContent = result.rootPath;
-  workspaceBadge.textContent = '真实项目';
+  workspaceBadge.textContent = uiText('真实项目', 'Real Project');
   findRelatedButton.disabled = false;
   semanticRelatedButton.disabled = false;
   semanticAiTourButton.disabled = false;
@@ -2923,7 +3087,7 @@ async function applyAndroidProjectSnapshot(
   projectRoot.textContent =
     snapshot.rootPath;
   workspaceBadge.textContent =
-    '真实项目';
+    uiText('真实项目', 'Real Project');
 
   renderFileTree(
     projectFiles,
@@ -3150,7 +3314,9 @@ function updateEditorSaveState(): void {
   const dirty = isRealProject && editorController.isDirty();
   editorTabDot.dataset.dirty = String(dirty);
   editorSaveState.dataset.dirty = String(dirty);
-  editorSaveState.textContent = dirty ? '● 未保存 · Ctrl+S' : '✓ 已保存';
+  editorSaveState.textContent = dirty
+    ? uiText('● 未保存 · Ctrl+S', '● Unsaved · Ctrl+S')
+    : uiText('✓ 已保存', '✓ Saved');
 }
 
 function updateFileTreeSelection(revealInTree = false): void {

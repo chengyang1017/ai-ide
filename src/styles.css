@@ -2552,3 +2552,56 @@ button:disabled {
     --code-line-height: 24px;
   }
 }
+
+
+/* Upwork UI language switch + Monaco inline note marker metric fix. */
+.ui-language-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 5px 0 8px;
+  border: 1px solid #343945;
+  border-radius: 7px;
+  background: #20242c;
+  color: #d7dae0;
+  white-space: nowrap;
+}
+
+.ui-language-switch:hover {
+  background: #2a2f39;
+}
+
+.ui-language-select {
+  min-width: 66px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ui-language-select option {
+  background: #171a20;
+  color: #d7dae0;
+}
+
+.monaco-editor .code-note-injected-existing,
+.monaco-editor .code-note-injected-add {
+  font-family: var(--code-font-family) !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+  vertical-align: baseline !important;
+}
+
+@media (max-width: 1180px) {
+  .ui-language-switch {
+    padding-left: 6px;
+  }
+
+  .ui-language-select {
+    min-width: 58px;
+  }
+}
