@@ -19,6 +19,7 @@ export interface PersistedVoiceState {
   rate: number;
 }
 
+
 export interface AppearanceState {
   color: string;
   backgroundMode: 'solid' | 'gradient';
@@ -84,38 +85,6 @@ declare global {
         path: string;
         bytes: number;
       }>;
-      createProjectFile?(relativePath: string): Promise<{
-        path: string;
-      }>;
-      createProjectDirectory?(relativePath: string): Promise<{
-        path: string;
-      }>;
-      moveProjectEntry?(
-        sourceRelativePath: string,
-        targetDirectoryRelativePath: string,
-      ): Promise<{
-        from: string;
-        to: string;
-      }>;
-      deleteProjectEntry?(relativePath: string): Promise<{
-        path: string;
-        type: 'file' | 'directory';
-      }>;
-      startTerminal?(): Promise<{
-        cwd: string;
-        shell: string;
-      }>;
-      writeTerminal?(input: string): Promise<boolean>;
-      stopTerminal?(): Promise<boolean>;
-      onTerminalData?(
-        listener: (payload: { data: string }) => void,
-      ): () => void;
-      onTerminalExit?(
-        listener: (payload: {
-          code: number | null;
-          signal: string | null;
-        }) => void,
-      ): () => void;
       watchProjectFile(relativePath: string): Promise<{ path: string }>;
       unwatchProjectFile(): Promise<boolean>;
       onProjectFileChanged(listener: (change: { path: string }) => void): () => void;
