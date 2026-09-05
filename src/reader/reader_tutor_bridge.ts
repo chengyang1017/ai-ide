@@ -112,6 +112,10 @@ function installReaderTutorBridge(): void {
     document.querySelector<HTMLElement>(
       '#editor-stage',
     );
+  const tutorSurface =
+    document.querySelector<HTMLElement>(
+      '#tutor-surface',
+    );
   const character =
     document.querySelector<HTMLElement>(
       '#tutor-character',
@@ -127,6 +131,7 @@ function installReaderTutorBridge(): void {
 
   if (
     !stage
+      || !tutorSurface
       || !character
       || !bubble
       || !status
@@ -139,11 +144,11 @@ function installReaderTutorBridge(): void {
 
   installed = true;
 
-  // CharacterController remains the only speech-text source. Moving the
-  // existing bubble inside the robot means Edit and Reader mode share the
-  // same caption node and therefore cannot drift into different wording.
-  if (bubble.parentElement !== character) {
-    character.appendChild(bubble);
+  // Keep the speech bubble as a sibling of the robot inside the full-size
+  // tutor surface. This avoids inheriting the robot's opacity/transform and
+  // gives the layout controller the whole editor viewport as a safe area.
+  if (bubble.parentElement !== tutorSurface) {
+    tutorSurface.prepend(bubble);
   }
 
   bubble.classList.add(
@@ -211,187 +216,6 @@ function installReaderTutorBridge(): void {
       );
     };
 
-  const syncBubbleAnchor =
-    (): void => {
-      bubblePositionFrame = 0;
-
-      formatSpeechBubble();
-
-      const availableWidth =
-        Math.max(
-          220,
-          stage.clientWidth - 24,
-        );
-
-      const preferredWidth =
-        stage.clientWidth <= 820
-          ? 340
-          : 420;
-
-      const dialogWidth =
-        Math.min(
-          preferredWidth,
-          availableWidth,
-        );
-
-      // Tablet CSS historically pinned the old one-line bubble using
-      // !important. Inline important values deliberately win here so the
-      // dialog can stay attached to the robot on every layout.
-      bubble.style.setProperty(
-        'width',
-        `${dialogWidth}px`,
-        'important',
-      );
-      bubble.style.setProperty(
-        'max-width',
-        `${availableWidth}px`,
-        'important',
-      );
-
-      const stageRect =
-        stage.getBoundingClientRect();
-      const characterRect =
-        character.getBoundingClientRect();
-      const bubbleWidth =
-        Math.max(
-          1,
-          bubble.offsetWidth,
-        );
-      const bubbleHeight =
-        Math.max(
-          1,
-          bubble.offsetHeight,
-        );
-
-      const inset = 12;
-      const gap = 12;
-      const minLeft =
-        stageRect.left + inset;
-      const maxLeft =
-        Math.max(
-          minLeft,
-          stageRect.right
-            - inset
-            - bubbleWidth,
-        );
-      const preferredLeft =
-        characterRect.left
-          + characterRect.width / 2
-          - bubbleWidth / 2;
-      const viewportLeft =
-        Math.max(
-          minLeft,
-          Math.min(
-            maxLeft,
-            preferredLeft,
-          ),
-        );
-
-      const aboveTop =
-        characterRect.top
-          - gap
-          - bubbleHeight;
-      const belowTop =
-        characterRect.bottom + gap;
-
-      let viewportTop: number;
-      let placement:
-        | 'above'
-        | 'below'
-        | 'edge';
-
-      if (
-        aboveTop
-          >= stageRect.top + inset
-      ) {
-        viewportTop = aboveTop;
-        placement = 'above';
-      } else if (
-        belowTop + bubbleHeight
-          <= stageRect.bottom - inset
-      ) {
-        viewportTop = belowTop;
-        placement = 'below';
-      } else {
-        const minTop =
-          stageRect.top + inset;
-        const maxTop =
-          Math.max(
-            minTop,
-            stageRect.bottom
-              - inset
-              - bubbleHeight,
-          );
-
-        viewportTop =
-          Math.max(
-            minTop,
-            Math.min(
-              maxTop,
-              characterRect.top,
-            ),
-          );
-        placement = 'edge';
-      }
-
-      const localLeft =
-        viewportLeft
-          - characterRect.left;
-      const localTop =
-        viewportTop
-          - characterRect.top;
-
-      bubble.style.setProperty(
-        'left',
-        `${Math.round(localLeft)}px`,
-        'important',
-      );
-      bubble.style.setProperty(
-        'top',
-        `${Math.round(localTop)}px`,
-        'important',
-      );
-      bubble.style.setProperty(
-        'right',
-        'auto',
-        'important',
-      );
-      bubble.style.setProperty(
-        'bottom',
-        'auto',
-        'important',
-      );
-
-      const tailX =
-        Math.max(
-          20,
-          Math.min(
-            bubbleWidth - 20,
-            characterRect.left
-              + characterRect.width / 2
-              - viewportLeft,
-          ),
-        );
-
-      bubble.style.setProperty(
-        '--tutor-tail-x',
-        `${Math.round(tailX)}px`,
-      );
-      bubble.style.setProperty(
-        '--tutor-dialog-origin-x',
-        `${Math.round(tailX)}px`,
-      );
-      bubble.style.setProperty(
-        '--tutor-dialog-origin-y',
-        placement === 'below'
-          ? '0%'
-          : '100%',
-      );
-
-      bubble.dataset.anchorPlacement =
-        placement;
-    };
-
   const scheduleBubbleAnchor =
     (): void => {
       if (bubblePositionFrame !== 0) {
@@ -400,7 +224,14 @@ function installReaderTutorBridge(): void {
 
       bubblePositionFrame =
         window.requestAnimationFrame(
-          syncBubbleAnchor,
+          () => {
+            bubblePositionFrame = 0;
+            window.dispatchEvent(
+              new CustomEvent(
+                'ai-ide-tutor-layout',
+              ),
+            );
+          },
         );
     };
 
