@@ -1,0 +1,218 @@
+name: Fix AI output language
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-ai-output-language.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch selected language through AI request pipeline
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          repo = Path('.')
+
+          # Renderer: send the currently selected language with every AI request.
+          main_path = repo / 'src/main.ts'
+          main = main_path.read_text(encoding='utf-8')
+
+          # Make the control's purpose explicit.
+          main = main.replace(
+              '<span>语言</span>\n              <select id="voice-language" class="voice-language" title="语音语言">',
+              '<span>AI / 语音</span>\n              <select id="voice-language" class="voice-language" title="AI 输出与语音语言">',
+              1,
+          )
+
+          if 'explainCurrentCode(context, preferredVoiceLanguage)' not in main:
+              main = main.replace(
+                  'window.tutorIde.explainCurrentCode(context);',
+                  'window.tutorIde.explainCurrentCode(context, preferredVoiceLanguage);',
+                  1,
+              )
+
+          # Follow-up question path uses an object literal; append the same language arg.
+          if 'selectedText: `用户在老师讲解过程中插话提问：${question}`' in main and 'preferredVoiceLanguage);\n    characterController.presentQuestionAnswer' not in main:
+              pattern = re.compile(
+                  r'(const result = await window\.tutorIde\.explainCurrentCode\(\{[\s\S]*?selectedText: `用户在老师讲解过程中插话提问：\$\{question\}`[\s\S]*?\n\s*\})\);',
+                  re.MULTILINE,
+              )
+              main, count = pattern.subn(r'\1, preferredVoiceLanguage);', main, count=1)
+              assert count == 1, 'Could not patch tutor follow-up explanation language'
+
+          if 'planTutorTour(focus, preferredVoiceLanguage)' not in main:
+              main = main.replace(
+                  'window.tutorIde.planTutorTour(focus);',
+                  'window.tutorIde.planTutorTour(focus, preferredVoiceLanguage);',
+                  1,
+              )
+
+          if 'planDartSemanticTour(focus, mode, preferredVoiceLanguage)' not in main:
+              main = main.replace(
+                  'window.tutorIde.planDartSemanticTour(focus, mode);',
+                  'window.tutorIde.planDartSemanticTour(focus, mode, preferredVoiceLanguage);',
+                  1,
+              )
+
+          main_path.write_text(main, encoding='utf-8')
+
+          # Preload bridge: forward the explicit language argument.
+          preload_path = repo / 'electron/preload.cjs'
+          preload = preload_path.read_text(encoding='utf-8')
+          preload = preload.replace(
+              "explainCurrentCode: (context) => ipcRenderer.invoke('ai:explain-current-code', context),",
+              "explainCurrentCode: (context, outputLanguage) => ipcRenderer.invoke('ai:explain-current-code', context, outputLanguage),",
+          )
+          preload = preload.replace(
+              "planTutorTour: (focus) => ipcRenderer.invoke('ai:plan-tour', focus),",
+              "planTutorTour: (focus, outputLanguage) => ipcRenderer.invoke('ai:plan-tour', focus, outputLanguage),",
+          )
+          preload = preload.replace(
+              "planDartSemanticTour: (focus, mode) => ipcRenderer.invoke('ai:plan-dart-semantic-tour', focus, mode),",
+              "planDartSemanticTour: (focus, mode, outputLanguage) => ipcRenderer.invoke('ai:plan-dart-semantic-tour', focus, mode, outputLanguage),",
+          )
+          preload_path.write_text(preload, encoding='utf-8')
+
+          # TypeScript bridge declarations.
+          types_path = repo / 'src/electron_api.d.ts'
+          types = types_path.read_text(encoding='utf-8')
+          types = types.replace(
+              'explainCurrentCode(context: CurrentCodeContext): Promise<CurrentCodeExplanation>;',
+              'explainCurrentCode(context: CurrentCodeContext, outputLanguage: string): Promise<CurrentCodeExplanation>;',
+          )
+          types = types.replace(
+              'planTutorTour(focus: TutorFocus): Promise<AiTutorPlan>;',
+              'planTutorTour(focus: TutorFocus, outputLanguage: string): Promise<AiTutorPlan>;',
+          )
+          types = types.replace(
+              'planDartSemanticTour(focus: SemanticFocus, mode: SemanticTutorMode): Promise<SemanticAiTutorPlan>;',
+              'planDartSemanticTour(focus: SemanticFocus, mode: SemanticTutorMode, outputLanguage: string): Promise<SemanticAiTutorPlan>;',
+          )
+          types_path.write_text(types, encoding='utf-8')
+
+          # Electron main process: use the request language first, persistent state only as fallback.
+          electron_path = repo / 'electron/main.cjs'
+          electron = electron_path.read_text(encoding='utf-8')
+
+          electron = electron.replace(
+              "ipcMain.handle('ai:explain-current-code', async (_event, rawContext) => {",
+              "ipcMain.handle('ai:explain-current-code', async (_event, rawContext, rawOutputLanguage) => {",
+              1,
+          )
+          electron = electron.replace(
+              'const explanation = await requestCurrentCodeExplanation(context);',
+              'const explanation = await requestCurrentCodeExplanation(context, rawOutputLanguage);',
+              1,
+          )
+
+          electron = electron.replace(
+              "ipcMain.handle('ai:plan-tour', async (_event, rawFocus) => {",
+              "ipcMain.handle('ai:plan-tour', async (_event, rawFocus, rawOutputLanguage) => {",
+              1,
+          )
+          electron = electron.replace(
+              'const aiPlan = await requestTutorPlan(focus, candidates);',
+              'const aiPlan = await requestTutorPlan(focus, candidates, rawOutputLanguage);',
+              1,
+          )
+
+          electron = electron.replace(
+              "ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode) => {",
+              "ipcMain.handle('ai:plan-dart-semantic-tour', async (_event, rawFocus, rawMode, rawOutputLanguage) => {",
+              1,
+          )
+          semantic_call_old = '''  const aiPlan = await requestSemanticTutorPlan({
+    focus: resolvedFocus,
+    mode,
+    symbolName: graph.symbolName || focus.query,
+    candidates,
+  });'''
+          semantic_call_new = '''  const aiPlan = await requestSemanticTutorPlan({
+    focus: resolvedFocus,
+    mode,
+    symbolName: graph.symbolName || focus.query,
+    candidates,
+    outputLanguage: rawOutputLanguage,
+  });'''
+          if semantic_call_new not in electron:
+              assert semantic_call_old in electron, 'Semantic AI plan call anchor missing'
+              electron = electron.replace(semantic_call_old, semantic_call_new, 1)
+
+          electron = electron.replace(
+              'async function requestCurrentCodeExplanation(context) {',
+              'async function requestCurrentCodeExplanation(context, outputLanguage) {',
+              1,
+          )
+          electron = electron.replace(
+              'async function requestTutorPlan(focus, candidates) {',
+              'async function requestTutorPlan(focus, candidates, outputLanguage) {',
+              1,
+          )
+          electron = electron.replace(
+              'async function requestSemanticTutorPlan({ focus, mode, symbolName, candidates }) {',
+              'async function requestSemanticTutorPlan({ focus, mode, symbolName, candidates, outputLanguage }) {',
+              1,
+          )
+
+          electron = electron.replace(
+              'content: localizeTutorPrompt(CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT),',
+              'content: localizeTutorPrompt(CURRENT_CODE_EXPLAIN_SYSTEM_PROMPT, outputLanguage),',
+              1,
+          )
+          electron = electron.replace(
+              'content: localizeTutorPrompt(AI_TUTOR_SYSTEM_PROMPT),',
+              'content: localizeTutorPrompt(AI_TUTOR_SYSTEM_PROMPT, outputLanguage),',
+              1,
+          )
+          electron = electron.replace(
+              'content: localizeTutorPrompt(SEMANTIC_AI_TUTOR_SYSTEM_PROMPT),',
+              'content: localizeTutorPrompt(SEMANTIC_AI_TUTOR_SYSTEM_PROMPT, outputLanguage),',
+              1,
+          )
+
+          old_helper = '''function localizeTutorPrompt(prompt) {
+  const language = String(persistentState.voice?.language || 'zh-CN').toLowerCase();'''
+          new_helper = '''function localizeTutorPrompt(prompt, requestedLanguage = '') {
+  const language = String(
+    requestedLanguage || persistentState.voice?.language || 'zh-CN',
+  ).toLowerCase();'''
+          if new_helper not in electron:
+              assert old_helper in electron, 'localizeTutorPrompt helper anchor missing'
+              electron = electron.replace(old_helper, new_helper, 1)
+
+          electron_path.write_text(electron, encoding='utf-8')
+          PY
+
+      - name: Verify expected wiring exists
+        run: |
+          grep -F "explainCurrentCode(context, preferredVoiceLanguage)" src/main.ts
+          grep -F "planTutorTour(focus, preferredVoiceLanguage)" src/main.ts
+          grep -F "planDartSemanticTour(focus, mode, preferredVoiceLanguage)" src/main.ts
+          grep -F "requestedLanguage || persistentState.voice?.language" electron/main.cjs
+
+      - name: Typecheck and build
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          git rm .github/workflows/fix-ai-output-language.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: pass selected language directly to AI tutor"
+          git push
