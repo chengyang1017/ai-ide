@@ -8,6 +8,10 @@
   --code-line-number-right-padding: 10px;
   --code-line-number-color: #626a77;
   --code-font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --sidebar-width: 230px;
+  --sidebar-min-width: 180px;
+  --sidebar-max-width: 520px;
+  --sidebar-resizer-width: 5px;
 
   --code-tab-size: 2;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -122,7 +126,10 @@ button:disabled {
 
 .workspace {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns:
+    var(--sidebar-width)
+    var(--sidebar-resizer-width)
+    minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -131,6 +138,38 @@ button:disabled {
   overflow: auto;
   border-right: 1px solid #262a32;
   background: #15181e;
+}
+
+.sidebar-resizer {
+  position: relative;
+  z-index: 50;
+  width: var(--sidebar-resizer-width);
+  min-width: var(--sidebar-resizer-width);
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.sidebar-resizer::before {
+  content: '';
+  position: absolute;
+  inset: 0 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.sidebar-resizer:hover::before,
+body.sidebar-resizing .sidebar-resizer::before {
+  background: rgb(124 92 255 / 55%);
+}
+
+body.sidebar-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.sidebar-resizing * {
+  cursor: col-resize !important;
 }
 
 .sidebar-title {
@@ -236,6 +275,20 @@ button:disabled {
 .editor {
   position: absolute;
   inset: 0;
+}
+
+/* Keep Monaco line numbers on the exact same gutter baseline as Reader mode. */
+.editor .monaco-editor .margin-view-overlays .line-numbers {
+  left: 0 !important;
+  width:
+    calc(
+      var(--code-gutter-width)
+        - var(--code-line-number-right-padding)
+    ) !important;
+  padding: 0 !important;
+  color: var(--code-line-number-color) !important;
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
 }
 
 .tutor-target-line {

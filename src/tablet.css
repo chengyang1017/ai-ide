@@ -97,6 +97,10 @@
     min-height: 0;
   }
 
+  .sidebar-resizer {
+    display: none !important;
+  }
+
   .sidebar {
     position: absolute !important;
     z-index: 260;

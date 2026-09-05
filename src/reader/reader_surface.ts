@@ -7,6 +7,8 @@ import type {
   SelectedCode,
 } from '../editor/editor_controller';
 import { monaco } from '../editor/monaco_setup';
+import { installSidebarResizer } from '../layout/sidebar_resizer';
+import { installReaderEditorViewSync } from './reader_editor_view_sync';
 import './reader_surface.css';
 
 export interface ReaderViewportDetail {
@@ -290,6 +292,13 @@ export function installReaderSurface(
       surface,
       '[data-reader-focus-layer]',
     );
+
+  installSidebarResizer();
+  installReaderEditorViewSync(
+    editorController,
+    editorStage,
+    scroll,
+  );
 
   const memorizeButton =
     document.createElement('button');
